@@ -1,0 +1,6 @@
+{
+  "name": "Zaddy Billing",
+  "description": "Modern, premium offline-first billing and POS application for small businesses.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
