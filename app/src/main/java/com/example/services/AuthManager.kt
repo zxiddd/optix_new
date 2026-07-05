@@ -1,80 +1,90 @@
 package com.example.services
 
 import android.content.Context
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class AuthManager(context: Context) {
+    private val auth = FirebaseAuth.getInstance()
     private val prefs = context.getSharedPreferences("zaddy_auth_prefs", Context.MODE_PRIVATE)
 
-    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
+    private val _isLoggedIn = MutableStateFlow(auth.currentUser != null)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    private val _userMobile = MutableStateFlow(prefs.getString("user_mobile", null))
-    val userMobile: StateFlow<String?> = _userMobile.asStateFlow()
+    private val _userEmail = MutableStateFlow<String?>(auth.currentUser?.email)
+    val userEmail: StateFlow<String?> = _userEmail.asStateFlow()
 
-    private val _userRole = MutableStateFlow(prefs.getString("user_role", "admin") ?: "admin")
+    private val _userRole = MutableStateFlow<String>(prefs.getString("user_role", "admin") ?: "admin")
     val userRole: StateFlow<String> = _userRole.asStateFlow()
 
-    private val _staffName = MutableStateFlow(prefs.getString("staff_name", null))
+    private val _staffName = MutableStateFlow<String?>(prefs.getString("staff_name", auth.currentUser?.displayName))
     val staffName: StateFlow<String?> = _staffName.asStateFlow()
 
-    private val _verificationCode = MutableStateFlow<String?>(null)
-    val verificationCode: StateFlow<String?> = _verificationCode.asStateFlow()
+    private val _userId = MutableStateFlow<String?>(auth.currentUser?.uid)
+    val userId: StateFlow<String?> = _userId.asStateFlow()
 
-    fun sendOtp(mobile: String): Boolean {
-        if (mobile.length >= 10) {
-            _userMobile.value = mobile
-            // Generate a random 4 digit code or standard test code 1234
-            val code = "1234"
-            _verificationCode.value = code
-            return true
+    init {
+        auth.addAuthStateListener { firebaseAuth ->
+            val user = firebaseAuth.currentUser
+            _isLoggedIn.value = user != null
+            _userEmail.value = user?.email
+            _userId.value = user?.uid
+            if (user == null) {
+                _userRole.value = "admin"
+                _staffName.value = null
+            } else {
+                // If it's a new login, we might need to fetch role from Firestore
+                // For now, default to admin if not staff
+                if (_userRole.value != "staff") {
+                    _userRole.value = "admin"
+                    _staffName.value = user.displayName ?: "Admin"
+                }
+            }
         }
-        return false
-    }
-
-    fun verifyOtp(code: String): Boolean {
-        if (code == _verificationCode.value || code == "1234") {
-            prefs.edit()
-                .putBoolean("is_logged_in", true)
-                .putString("user_mobile", _userMobile.value)
-                .putString("user_role", "admin")
-                .putString("staff_name", "Admin")
-                .apply()
-            _isLoggedIn.value = true
-            _userRole.value = "admin"
-            _staffName.value = "Admin"
-            return true
-        }
-        return false
     }
 
     fun loginAsStaff(username: String, name: String) {
         prefs.edit()
-            .putBoolean("is_logged_in", true)
-            .putString("user_mobile", username)
             .putString("user_role", "staff")
             .putString("staff_name", name)
             .apply()
-        _isLoggedIn.value = true
-        _userMobile.value = username
         _userRole.value = "staff"
         _staffName.value = name
     }
 
+    fun signIn(email: String, pass: String, onComplete: (Boolean, String?) -> Unit) {
+        auth.signInWithEmailAndPassword(email, pass)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    onComplete(true, null)
+                } else {
+                    onComplete(false, task.exception?.message ?: "Login failed")
+                }
+            }
+    }
+
+    fun signUp(email: String, pass: String, onComplete: (Boolean, String?) -> Unit) {
+        auth.createUserWithEmailAndPassword(email, pass)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    onComplete(true, null)
+                } else {
+                    onComplete(false, task.exception?.message ?: "Registration failed")
+                }
+            }
+    }
+
     fun logout() {
+        auth.signOut()
         prefs.edit()
-            .putBoolean("is_logged_in", false)
-            .putString("user_mobile", null)
             .putString("user_role", "admin")
             .putString("staff_name", null)
             .apply()
-        _isLoggedIn.value = false
-        _userMobile.value = null
         _userRole.value = "admin"
         _staffName.value = null
-        _verificationCode.value = null
     }
 
     companion object {

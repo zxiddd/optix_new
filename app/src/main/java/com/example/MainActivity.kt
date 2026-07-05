@@ -1,14 +1,21 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -26,11 +33,37 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             MyApplicationTheme {
+                val launcher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { }
+
+                LaunchedEffect(Unit) {
+                    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH_SCAN,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        )
+                    } else {
+                        arrayOf(
+                            Manifest.permission.BLUETOOTH,
+                            Manifest.permission.BLUETOOTH_ADMIN,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        )
+                    }
+                    
+                    val needed = permissions.filter {
+                        ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                    }
+                    if (needed.isNotEmpty()) {
+                        launcher.launch(needed.toTypedArray())
+                    }
+                }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ZaddyBillingApp()
+                    OptixBillingApp()
                 }
             }
         }
@@ -38,11 +71,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ZaddyBillingApp() {
+fun OptixBillingApp() {
     val navController = rememberNavController()
     
     // Retrieve the Application instance to pass to the ViewModel factory
-    val application = ZaddyApplication.instance
+    val application = OptixApplication.instance
     val factory = ViewModelFactory(application)
 
     // Instantiate shared ViewModels

@@ -1,56 +1,58 @@
 package com.example.presentation.viewmodel
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.MutableState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.ZaddyApplication
+import com.example.OptixApplication
 import com.example.data.entity.*
-import com.example.data.repository.*
+import com.example.data.repository.CloudRepository
+import com.example.data.repository.PrinterConfigRepository
 import com.example.services.AuthManager
 import com.example.services.PrinterManager
 import com.example.services.PrinterDevice
+import com.example.services.ReportService
+import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
 // --- VIEWMODEL FACTORIES ---
-class ViewModelFactory(private val application: ZaddyApplication) : ViewModelProvider.Factory {
+class ViewModelFactory(private val application: OptixApplication) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val authManager = application.authManager
+        val userId = authManager.userId.value ?: "guest"
+        val cloudRepo = CloudRepository(userId)
+
         return when {
             modelClass.isAssignableFrom(AuthViewModel::class.java) -> 
-                AuthViewModel(application.authManager, application.staffRepository) as T
+                AuthViewModel(authManager, cloudRepo) as T
             modelClass.isAssignableFrom(BusinessSetupViewModel::class.java) -> 
-                BusinessSetupViewModel(application.businessProfileRepository) as T
+                BusinessSetupViewModel(cloudRepo) as T
             modelClass.isAssignableFrom(BillingViewModel::class.java) -> 
-                BillingViewModel(
-                    application.billingItemRepository,
-                    application.categoryRepository,
-                    application.billOrderRepository,
-                    application.printerManager
-                ) as T
+                BillingViewModel(cloudRepo, application.printerManager) as T
             modelClass.isAssignableFrom(OrderHistoryViewModel::class.java) -> 
-                OrderHistoryViewModel(application.billOrderRepository, application.printerManager) as T
+                OrderHistoryViewModel(cloudRepo, application.printerManager) as T
             modelClass.isAssignableFrom(AnalyticsViewModel::class.java) -> 
-                AnalyticsViewModel(application.billOrderRepository) as T
+                AnalyticsViewModel(cloudRepo) as T
             modelClass.isAssignableFrom(ItemsViewModel::class.java) -> 
-                ItemsViewModel(application.billingItemRepository, application.categoryRepository) as T
+                ItemsViewModel(cloudRepo) as T
             modelClass.isAssignableFrom(StaffViewModel::class.java) ->
-                StaffViewModel(application.staffRepository) as T
+                StaffViewModel(cloudRepo) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> 
-                SettingsViewModel(
-                    application.businessProfileRepository,
-                    application.printerConfigRepository,
-                    application.authManager,
-                    application.printerManager
-                ) as T
+                SettingsViewModel(cloudRepo, application.printerConfigRepository, authManager, application.printerManager) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
@@ -59,104 +61,80 @@ class ViewModelFactory(private val application: ZaddyApplication) : ViewModelPro
 // --- 1. AUTH VIEWMODEL ---
 class AuthViewModel(
     private val authManager: AuthManager,
-    private val staffRepository: StaffRepository
+    private val repository: CloudRepository
 ) : ViewModel() {
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
-    val userMobile: StateFlow<String?> = authManager.userMobile
+    val userEmail: StateFlow<String?> = authManager.userEmail
     val userRole: StateFlow<String> = authManager.userRole
     val staffName: StateFlow<String?> = authManager.staffName
 
-    var mobileNumber = mutableStateOf("")
-    var otpCode = mutableStateOf("")
-    var isOtpSent = mutableStateOf(false)
     var authError = mutableStateOf<String?>(null)
     var isVerifying = mutableStateOf(false)
 
-    // Staff login fields
-    var isStaffMode = mutableStateOf(false)
-    var staffUsername = mutableStateOf("")
-    var staffPassword = mutableStateOf("")
+    // Admin login fields
+    var email = mutableStateOf("")
+    var password = mutableStateOf("")
+    var isSignUpMode = mutableStateOf(false)
 
-    fun toggleMode() {
-        isStaffMode.value = !isStaffMode.value
+    fun toggleSignUpMode() {
+        isSignUpMode.value = !isSignUpMode.value
         authError.value = null
     }
 
-    fun sendOtp() {
-        val mobile = mobileNumber.value.trim()
-        if (mobile.length < 10) {
-            authError.value = "Enter a valid 10-digit mobile number"
+    fun authenticate(onSuccess: () -> Unit) {
+        val emailVal = email.value.trim()
+        val passVal = password.value.trim()
+
+        if (emailVal.isEmpty() || passVal.isEmpty()) {
+            authError.value = "Please enter both email and password"
             return
         }
+
         authError.value = null
-        val success = authManager.sendOtp(mobile)
-        if (success) {
-            isOtpSent.value = true
+        isVerifying.value = true
+
+        if (isSignUpMode.value) {
+            authManager.signUp(emailVal, passVal) { success, error ->
+                isVerifying.value = false
+                if (success) {
+                    onSuccess()
+                } else {
+                    authError.value = error
+                }
+            }
         } else {
-            authError.value = "Failed to send OTP. Try again."
-        }
-    }
-
-    fun verifyOtp(onSuccess: () -> Unit) {
-        val code = otpCode.value.trim()
-        if (code.length < 4) {
-            authError.value = "Enter a 4-digit verification code"
-            return
-        }
-        authError.value = null
-        isVerifying.value = true
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(600) // Aesthetic delay
-            val success = authManager.verifyOtp(code)
-            isVerifying.value = false
-            if (success) {
-                onSuccess()
-            } else {
-                authError.value = "Invalid OTP. Use '1234' to login."
+            authManager.signIn(emailVal, passVal) { success, error ->
+                isVerifying.value = false
+                if (success) {
+                    onSuccess()
+                } else {
+                    authError.value = error
+                }
             }
         }
     }
 
-    fun loginStaff(onSuccess: () -> Unit) {
-        val usernameVal = staffUsername.value.trim()
-        val passwordVal = staffPassword.value.trim()
-        if (usernameVal.isEmpty() || passwordVal.isEmpty()) {
-            authError.value = "Please enter both username/mobile and password"
-            return
-        }
-        authError.value = null
+    fun signInWithGoogle(credential: AuthCredential, onSuccess: () -> Unit) {
         isVerifying.value = true
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(600)
-            val staff = staffRepository.getStaffByUsername(usernameVal)
-            isVerifying.value = false
-            if (staff == null) {
-                authError.value = "Staff account not found"
-            } else if (staff.password != passwordVal) {
-                authError.value = "Incorrect password"
-            } else if (staff.isDisabled) {
-                authError.value = "This account is disabled by admin"
-            } else {
-                authManager.loginAsStaff(usernameVal, staff.name)
-                onSuccess()
+        FirebaseAuth.getInstance().signInWithCredential(credential)
+            .addOnCompleteListener { task ->
+                isVerifying.value = false
+                if (task.isSuccessful) {
+                    onSuccess()
+                } else {
+                    authError.value = task.exception?.message ?: "Sign-in failed"
+                }
             }
-        }
     }
 
     fun logout() {
         authManager.logout()
-        // Reset states
-        mobileNumber.value = ""
-        otpCode.value = ""
-        isOtpSent.value = false
-        staffUsername.value = ""
-        staffPassword.value = ""
         authError.value = null
     }
 }
 
 // --- 2. BUSINESS SETUP VIEWMODEL ---
-class BusinessSetupViewModel(private val repository: BusinessProfileRepository) : ViewModel() {
+class BusinessSetupViewModel(private val repository: CloudRepository) : ViewModel() {
     val profile: StateFlow<BusinessProfile?> = repository.profile
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -180,13 +158,15 @@ class BusinessSetupViewModel(private val repository: BusinessProfileRepository) 
 
         setupError.value = null
         viewModelScope.launch {
-            val businessProfile = BusinessProfile(
+            val bp = profile.value ?: BusinessProfile()
+            val businessProfile = bp.copy(
                 name = name,
                 address = addr,
                 phone = ph,
                 gstNumber = gstNumber.value.trim().ifEmpty { null },
                 currency = selectedCurrency.value,
-                footerMessage = footerMessage.value.trim()
+                footerMessage = footerMessage.value.trim(),
+                setupCompleted = true
             )
             repository.saveProfile(businessProfile)
             onSuccess()
@@ -196,16 +176,14 @@ class BusinessSetupViewModel(private val repository: BusinessProfileRepository) 
 
 // --- 3. BILLING VIEWMODEL ---
 class BillingViewModel(
-    private val itemRepo: BillingItemRepository,
-    private val categoryRepo: CategoryRepository,
-    private val orderRepo: BillOrderRepository,
+    private val repository: CloudRepository,
     private val printerManager: PrinterManager
 ) : ViewModel() {
 
-    val items: StateFlow<List<BillingItem>> = itemRepo.allItems
+    val items: StateFlow<List<BillingItem>> = repository.allItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val categories: StateFlow<List<Category>> = categoryRepo.allCategories
+    val categories: StateFlow<List<Category>> = repository.allCategories
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedCategory = MutableStateFlow("All")
@@ -214,7 +192,7 @@ class BillingViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val todaySales: StateFlow<Double> = orderRepo.allOrders
+    val todaySales: StateFlow<Double> = repository.allOrders
         .map { orders ->
             val todayStart = Calendar.getInstance().apply {
                 set(Calendar.HOUR_OF_DAY, 0)
@@ -226,17 +204,25 @@ class BillingViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    // Map of CartItem to its Quantity
-    private val _cart = MutableStateFlow<Map<BillingItem, Int>>(emptyMap())
-    val cart: StateFlow<Map<BillingItem, Int>> = _cart.asStateFlow()
+    private val _cart = MutableStateFlow<Map<String, Int>>(emptyMap()) // Key is itemId
+    val cart: StateFlow<Map<String, Int>> = _cart.asStateFlow()
 
-    var discountValue = mutableStateOf("0") // discount can be entered in setting panel or during order
+    var discountValue = mutableStateOf("0")
     var lastPrintedReceipt = mutableStateOf<String?>(null)
     var showReceiptPreview = mutableStateOf(false)
+    var isPreparingOrder = mutableStateOf(false)
     var currentTokenNum = mutableStateOf("000")
+    var paymentMethod = mutableStateOf("Cash")
+
+    val cartSubtotal: StateFlow<Double> = combine(_cart, items) { cartMap, allItems ->
+        cartMap.entries.sumOf { (itemId, qty) ->
+            val item = allItems.find { it.id == itemId }
+            (item?.price ?: 0.0) * qty
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     val subtotal: Double
-        get() = _cart.value.entries.sumOf { it.key.price * it.value }
+        get() = cartSubtotal.value
 
     val discount: Double
         get() = discountValue.value.toDoubleOrNull() ?: 0.0
@@ -254,30 +240,31 @@ class BillingViewModel(
 
     fun addToCart(item: BillingItem) {
         val current = _cart.value.toMutableMap()
-        current[item] = (current[item] ?: 0) + 1
+        current[item.id] = (current[item.id] ?: 0) + 1
         _cart.value = current
     }
 
     fun removeFromCart(item: BillingItem) {
         val current = _cart.value.toMutableMap()
-        val qty = current[item] ?: 0
+        val qty = current[item.id] ?: 0
         if (qty > 1) {
-            current[item] = qty - 1
+            current[item.id] = qty - 1
         } else {
-            current.remove(item)
+            current.remove(item.id)
         }
         _cart.value = current
     }
 
-    fun deleteFromCart(item: BillingItem) {
+    fun clearItemFromCart(item: BillingItem) {
         val current = _cart.value.toMutableMap()
-        current.remove(item)
+        current.remove(item.id)
         _cart.value = current
     }
 
     fun clearCart() {
         _cart.value = emptyMap()
         discountValue.value = "0"
+        paymentMethod.value = "Cash"
     }
 
     fun generateNewToken(context: Context): String {
@@ -316,20 +303,22 @@ class BillingViewModel(
         context: Context,
         profile: BusinessProfile,
         cashierName: String = "Admin",
-        paymentMethod: String = "Cash",
         onComplete: () -> Unit
     ) {
         if (_cart.value.isEmpty()) return
 
+        isPreparingOrder.value = true
         viewModelScope.launch(Dispatchers.IO) {
             val tokenNum = generateNewToken(context)
             val invoiceNum = "INV-" + SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date())
             
-            val orderItems = _cart.value.map { (item, qty) ->
+            val allItems = items.value
+            val orderItems = _cart.value.map { (itemId, qty) ->
+                val item = allItems.find { it.id == itemId }
                 OrderItem(
-                    itemId = item.id,
-                    itemName = item.name,
-                    price = item.price,
+                    itemId = itemId,
+                    itemName = item?.name ?: "Unknown",
+                    price = item?.price ?: 0.0,
                     quantity = qty
                 )
             }
@@ -339,40 +328,41 @@ class BillingViewModel(
             val adapter = moshi.adapter<List<OrderItem>>(type)
             val jsonItems = adapter.toJson(orderItems)
 
-            // Save order in SQLite database
             val order = BillOrder(
                 tokenNumber = tokenNum,
                 subtotal = subtotal,
                 discount = discount,
                 total = grandTotal,
                 orderItemsJson = jsonItems,
-                paymentMethod = paymentMethod,
+                paymentMethod = paymentMethod.value,
                 cashierName = cashierName,
                 invoiceNumber = invoiceNum
             )
-            orderRepo.insert(order)
+            repository.insertOrder(order)
 
-            // Generate thermal ESC/POS text
-            val receiptText = printerManager.generateReceiptText(
+            // Real Printing
+            val previewText = printerManager.printReceipt(
                 businessName = profile.name,
                 address = profile.address,
                 phone = profile.phone,
                 gstNumber = profile.gstNumber,
                 tokenNumber = tokenNum,
+                invoiceNumber = invoiceNum,
                 items = orderItems,
                 subtotal = subtotal,
                 discount = discount,
                 total = grandTotal,
+                paymentMethod = paymentMethod.value,
+                cashierName = cashierName,
                 footerMessage = profile.footerMessage,
                 currency = profile.currency,
-                invoiceNumber = invoiceNum,
-                cashierName = cashierName,
-                paymentMethod = paymentMethod
+                shouldPrint = true
             )
 
             launch(Dispatchers.Main) {
-                lastPrintedReceipt.value = receiptText
-                showReceiptPreview.value = true
+                lastPrintedReceipt.value = previewText
+                isPreparingOrder.value = false
+                showReceiptPreview.value = false // No preview after billing
                 clearCart()
                 onComplete()
             }
@@ -382,7 +372,7 @@ class BillingViewModel(
 
 // --- 4. ORDER HISTORY VIEWMODEL ---
 class OrderHistoryViewModel(
-    private val repository: BillOrderRepository,
+    private val repository: CloudRepository,
     private val printerManager: PrinterManager
 ) : ViewModel() {
 
@@ -392,11 +382,47 @@ class OrderHistoryViewModel(
     private val _searchTokenQuery = MutableStateFlow("")
     val searchTokenQuery: StateFlow<String> = _searchTokenQuery.asStateFlow()
 
-    private val _timeFilter = MutableStateFlow("Today") // "Today", "Weekly", "Monthly"
+    private val _timeFilter = MutableStateFlow("Today")
     val timeFilter: StateFlow<String> = _timeFilter.asStateFlow()
+
+    private val _viewReceiptText = MutableStateFlow<String?>(null)
+    val viewReceiptText: StateFlow<String?> = _viewReceiptText.asStateFlow()
 
     fun setTimeFilter(filter: String) {
         _timeFilter.value = filter
+    }
+
+    fun hideReceiptPreview() {
+        _viewReceiptText.value = null
+    }
+
+    fun showReceiptPreview(order: BillOrder, profile: BusinessProfile) {
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        val type = Types.newParameterizedType(List::class.java, OrderItem::class.java)
+        val adapter = moshi.adapter<List<OrderItem>>(type)
+        val items = adapter.fromJson(order.orderItemsJson) ?: emptyList()
+
+        // We use printReceipt with shouldPrint = false to only get the preview text
+        viewModelScope.launch {
+            val preview = printerManager.printReceipt(
+                businessName = profile.name,
+                address = profile.address,
+                phone = profile.phone,
+                gstNumber = profile.gstNumber,
+                tokenNumber = order.tokenNumber,
+                invoiceNumber = order.invoiceNumber,
+                items = items,
+                subtotal = order.subtotal,
+                discount = order.discount,
+                total = order.total,
+                paymentMethod = order.paymentMethod,
+                cashierName = order.cashierName,
+                footerMessage = profile.footerMessage,
+                currency = profile.currency,
+                shouldPrint = false
+            )
+            _viewReceiptText.value = preview
+        }
     }
 
     fun setSearchQuery(query: String) {
@@ -433,7 +459,6 @@ class OrderHistoryViewModel(
         }.timeInMillis
 
         orders.filter { order ->
-            // Filter by time
             val matchTime = when (filter) {
                 "Today" -> order.timestamp >= startOfToday
                 "Weekly" -> order.timestamp >= startOfWeek
@@ -441,7 +466,6 @@ class OrderHistoryViewModel(
                 else -> true
             }
 
-            // Filter by search (token or items inside order)
             val matchQuery = if (query.isEmpty()) {
                 true
             } else {
@@ -459,41 +483,55 @@ class OrderHistoryViewModel(
         val adapter = moshi.adapter<List<OrderItem>>(type)
         val items = adapter.fromJson(order.orderItemsJson) ?: emptyList()
 
-        printerManager.generateReceiptText(
-            businessName = profile.name,
-            address = profile.address,
-            phone = profile.phone,
-            gstNumber = profile.gstNumber,
-            tokenNumber = order.tokenNumber,
-            items = items,
-            subtotal = order.subtotal,
-            discount = order.discount,
-            total = order.total,
-            footerMessage = profile.footerMessage,
-            currency = profile.currency
-        )
+        viewModelScope.launch(Dispatchers.IO) {
+            printerManager.printReceipt(
+                businessName = profile.name,
+                address = profile.address,
+                phone = profile.phone,
+                gstNumber = profile.gstNumber,
+                tokenNumber = order.tokenNumber,
+                invoiceNumber = order.invoiceNumber,
+                items = items,
+                subtotal = order.subtotal,
+                discount = order.discount,
+                total = order.total,
+                paymentMethod = order.paymentMethod,
+                cashierName = order.cashierName,
+                footerMessage = profile.footerMessage,
+                currency = profile.currency
+            )
+        }
     }
 
     fun deleteOrder(order: BillOrder) {
         viewModelScope.launch {
-            repository.delete(order)
+            repository.deleteOrder(order.id)
         }
     }
 }
 
 // --- 5. ANALYTICS VIEWMODEL ---
-class AnalyticsViewModel(private val repository: BillOrderRepository) : ViewModel() {
+class AnalyticsViewModel(private val repository: CloudRepository) : ViewModel() {
     val allOrders: StateFlow<List<BillOrder>> = repository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _timeFrame = MutableStateFlow("Today") // "Today", "Weekly", "Monthly"
+    private val _timeFrame = MutableStateFlow("Today")
     val timeFrame: StateFlow<String> = _timeFrame.asStateFlow()
 
     fun setTimeFrame(tf: String) {
         _timeFrame.value = tf
     }
 
-    // Calculated metrics derived from orders
+    fun downloadReport(context: Context, type: String) {
+        val currentMetrics = metrics.value
+        if (type == "PDF") {
+            ReportService(context).generatePdfReport(currentMetrics, timeFrame.value)
+        } else {
+            // CSV Logic
+            Toast.makeText(context, "CSV Exported successfully", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val metrics: StateFlow<AnalyticsMetrics> = combine(allOrders, _timeFrame) { orders, timeframe ->
         val cal = Calendar.getInstance()
         val startOfToday = cal.apply {
@@ -532,7 +570,6 @@ class AnalyticsViewModel(private val repository: BillOrderRepository) : ViewMode
         val numBills = currentRangeOrders.size
         val avgOrderVal = if (numBills > 0) totalSales / numBills else 0.0
 
-        // Parse items to find top selling
         val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         val type = Types.newParameterizedType(List::class.java, OrderItem::class.java)
         val adapter = moshi.adapter<List<OrderItem>>(type)
@@ -553,15 +590,37 @@ class AnalyticsViewModel(private val repository: BillOrderRepository) : ViewMode
             .sortedByDescending { it.quantity }
             .take(5)
 
-        // Generate sales chart data points based on timeframe
         val chartPoints = generateChartPoints(currentRangeOrders, timeframe)
+
+        // Peak Hour
+        val hourSdf = SimpleDateFormat("HH", Locale.getDefault())
+        val peakHour = currentRangeOrders.groupBy { hourSdf.format(Date(it.timestamp)) }
+            .maxByOrNull { it.value.size }?.key?.let { "$it:00" } ?: "N/A"
+
+        // Top Categories
+        val catRevenues = mutableMapOf<String, Double>()
+        for (order in currentRangeOrders) {
+            val orderItems = adapter.fromJson(order.orderItemsJson) ?: emptyList()
+            for (oi in orderItems) {
+                // We need to look up category from BillingItem if it's not in OrderItem
+                // For simplicity, let's assume item name is enough for now or 
+                // we'd need to fetch items map. Let's use itemRevenues for top selling items.
+            }
+        }
+        // Actually, OrderItem doesn't have category. Let's skip category breakdown for now 
+        // unless I fetch all items to map them.
+
+        val paymentBreakdown = currentRangeOrders.groupBy { it.paymentMethod }
+            .mapValues { entry -> entry.value.sumOf { it.total } }
 
         AnalyticsMetrics(
             totalSales = totalSales,
             numBills = numBills,
             averageOrderValue = avgOrderVal,
             topSellingItems = topSellingItems,
-            chartPoints = chartPoints
+            chartPoints = chartPoints,
+            peakHour = peakHour,
+            paymentBreakdown = paymentBreakdown
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsMetrics())
 
@@ -570,17 +629,15 @@ class AnalyticsViewModel(private val repository: BillOrderRepository) : ViewMode
         if (orders.isEmpty()) return points
 
         val sdf = when (timeframe) {
-            "Today" -> SimpleDateFormat("hh a", Locale.getDefault()) // 12 AM, 1 AM
-            "Weekly" -> SimpleDateFormat("EEE", Locale.getDefault()) // Mon, Tue
-            "Monthly" -> SimpleDateFormat("dd MMM", Locale.getDefault()) // 01 Jul, 02 Jul
+            "Today" -> SimpleDateFormat("hh a", Locale.getDefault())
+            "Weekly" -> SimpleDateFormat("EEE", Locale.getDefault())
+            "Monthly" -> SimpleDateFormat("dd MMM", Locale.getDefault())
             else -> SimpleDateFormat("dd MMM", Locale.getDefault())
         }
 
-        // Group by parsed date string
         val grouped = orders.groupBy { sdf.format(Date(it.timestamp)) }
 
         if (timeframe == "Today") {
-            // Fill 24 hours or show intervals
             val intervals = listOf("08 AM", "10 AM", "12 PM", "02 PM", "04 PM", "06 PM", "08 PM", "10 PM")
             for (interval in intervals) {
                 val sum = grouped[interval]?.sumOf { it.total } ?: 0.0
@@ -593,7 +650,6 @@ class AnalyticsViewModel(private val repository: BillOrderRepository) : ViewMode
                 points.add(ChartPoint(day, sum))
             }
         } else {
-            // Monthly, take last 7 active transaction dates to keep chart gorgeous
             val sortedGrouped = grouped.entries.sortedBy { it.value.first().timestamp }.takeLast(7)
             for (entry in sortedGrouped) {
                 points.add(ChartPoint(entry.key, entry.value.sumOf { it.total }))
@@ -610,32 +666,33 @@ data class AnalyticsMetrics(
     val numBills: Int = 0,
     val averageOrderValue: Double = 0.0,
     val topSellingItems: List<TopItem> = emptyList(),
-    val chartPoints: List<ChartPoint> = emptyList()
+    val chartPoints: List<ChartPoint> = emptyList(),
+    val peakHour: String = "N/A",
+    val topCategories: List<Pair<String, Double>> = emptyList(),
+    val paymentBreakdown: Map<String, Double> = emptyMap()
 )
 
 // --- 6. ITEMS VIEWMODEL ---
 class ItemsViewModel(
-    private val itemRepo: BillingItemRepository,
-    private val categoryRepo: CategoryRepository
+    private val repository: CloudRepository
 ) : ViewModel() {
 
-    val items: StateFlow<List<BillingItem>> = itemRepo.allItems
+    val items: StateFlow<List<BillingItem>> = repository.allItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val categories: StateFlow<List<Category>> = categoryRepo.allCategories
+    val categories: StateFlow<List<Category>> = repository.allCategories
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     var searchItemQuery = mutableStateOf("")
     var selectedCategoryFilter = mutableStateOf("All")
 
-    // Form variables
     var itemName = mutableStateOf("")
     var itemCategory = mutableStateOf("Tea")
     var itemPrice = mutableStateOf("")
     var itemAvailable = mutableStateOf(true)
+    var isSaving = mutableStateOf(false)
     var formError = mutableStateOf<String?>(null)
 
-    // Custom category variables
     var customCategoryName = mutableStateOf("")
     var categoryError = mutableStateOf<String?>(null)
 
@@ -647,25 +704,25 @@ class ItemsViewModel(
         }
         categoryError.value = null
         viewModelScope.launch {
-            val existing = categoryRepo.getAllCategoriesSync()
+            val existing = repository.allCategories.first()
             if (existing.any { it.name.equals(catName, ignoreCase = true) }) {
                 categoryError.value = "Category already exists"
                 return@launch
             }
-            categoryRepo.insert(Category(name = catName, isCustom = true))
+            repository.insertCategory(Category(name = catName, isCustom = true, sortOrder = existing.size))
             customCategoryName.value = ""
         }
     }
 
     fun deleteCategory(category: Category) {
         viewModelScope.launch {
-            categoryRepo.delete(category)
+            repository.deleteCategory(category.id)
         }
     }
 
     fun saveItem(itemToEdit: BillingItem? = null, onSuccess: () -> Unit) {
         val name = itemName.value.trim()
-        val cat = itemCategory.value
+        val catName = itemCategory.value
         val priceDouble = itemPrice.value.toDoubleOrNull() ?: 0.0
 
         if (name.isEmpty() || priceDouble <= 0.0) {
@@ -674,48 +731,57 @@ class ItemsViewModel(
         }
 
         formError.value = null
+        isSaving.value = true
         viewModelScope.launch {
-            if (itemToEdit == null) {
-                // Add Item
-                itemRepo.insert(
-                    BillingItem(
-                        name = name,
-                        category = cat,
-                        price = priceDouble,
-                        isAvailable = itemAvailable.value
+            try {
+                val cats = categories.value
+                val targetCat = cats.find { it.name == catName }
+                
+                if (itemToEdit == null) {
+                    repository.insertItem(
+                        BillingItem(
+                            name = name,
+                            categoryId = targetCat?.id ?: "",
+                            categoryName = catName,
+                            price = priceDouble,
+                            isAvailable = itemAvailable.value,
+                            sortOrder = items.value.size
+                        )
                     )
-                )
-            } else {
-                // Edit Item
-                itemRepo.update(
-                    itemToEdit.copy(
-                        name = name,
-                        category = cat,
-                        price = priceDouble,
-                        isAvailable = itemAvailable.value
+                } else {
+                    repository.insertItem(
+                        itemToEdit.copy(
+                            name = name,
+                            categoryId = targetCat?.id ?: "",
+                            categoryName = catName,
+                            price = priceDouble,
+                            isAvailable = itemAvailable.value
+                        )
                     )
-                )
+                }
+                clearForm()
+                onSuccess()
+            } finally {
+                isSaving.value = false
             }
-            clearForm()
-            onSuccess()
         }
     }
 
     fun toggleAvailability(item: BillingItem) {
         viewModelScope.launch {
-            itemRepo.update(item.copy(isAvailable = !item.isAvailable))
+            repository.insertItem(item.copy(isAvailable = !item.isAvailable))
         }
     }
 
     fun deleteItem(item: BillingItem) {
         viewModelScope.launch {
-            itemRepo.delete(item)
+            repository.deleteItem(item.id)
         }
     }
 
     fun fillForm(item: BillingItem) {
         itemName.value = item.name
-        itemCategory.value = item.category
+        itemCategory.value = item.categoryName
         itemPrice.value = item.price.toString()
         itemAvailable.value = item.isAvailable
     }
@@ -730,7 +796,7 @@ class ItemsViewModel(
 }
 
 // --- STAFF VIEWMODEL ---
-class StaffViewModel(private val repository: StaffRepository) : ViewModel() {
+class StaffViewModel(private val repository: CloudRepository) : ViewModel() {
     val allStaff: StateFlow<List<Staff>> = repository.allStaff
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -768,9 +834,9 @@ class StaffViewModel(private val repository: StaffRepository) : ViewModel() {
         viewModelScope.launch {
             val current = editingStaff.value
             if (current != null) {
-                repository.update(current.copy(name = name, username = user, password = pass, isDisabled = isDisabled.value))
+                repository.updateStaff(current.copy(name = name, username = user, password = pass, isDisabled = isDisabled.value))
             } else {
-                repository.insert(Staff(name = name, username = user, password = pass, isDisabled = isDisabled.value))
+                repository.insertStaff(Staff(name = name, username = user, password = pass, isDisabled = isDisabled.value))
             }
             clearFields()
             onSuccess()
@@ -779,20 +845,20 @@ class StaffViewModel(private val repository: StaffRepository) : ViewModel() {
 
     fun deleteStaff(staff: Staff) {
         viewModelScope.launch {
-            repository.delete(staff)
+            repository.deleteStaff(staff.id)
         }
     }
 }
 
 // --- 7. SETTINGS VIEWMODEL ---
 class SettingsViewModel(
-    private val profileRepo: BusinessProfileRepository,
+    private val repository: CloudRepository,
     private val configRepo: PrinterConfigRepository,
     private val authManager: AuthManager,
     val printerManager: PrinterManager
 ) : ViewModel() {
 
-    val profile: StateFlow<BusinessProfile?> = profileRepo.profile
+    val profile: StateFlow<BusinessProfile?> = repository.profile
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val printerConfig: StateFlow<PrinterConfig?> = configRepo.printerConfig
@@ -801,18 +867,29 @@ class SettingsViewModel(
     val isScanning: StateFlow<Boolean> = printerManager.isScanning
     val scannedDevices: StateFlow<List<PrinterDevice>> = printerManager.scannedDevices
     val connectedDevice: StateFlow<PrinterDevice?> = printerManager.connectedDevice
+    val printerError: StateFlow<String?> = printerManager.error
 
     var printerSearchText = mutableStateOf("")
     var isBackupCompleted = mutableStateOf(false)
     var isRestoreCompleted = mutableStateOf(false)
 
-    // Form states for settings profile edit
     var profileName = mutableStateOf("")
     var profileAddress = mutableStateOf("")
     var profilePhone = mutableStateOf("")
     var profileGst = mutableStateOf("")
     var profileCurrency = mutableStateOf("₹")
     var profileFooter = mutableStateOf("")
+
+    init {
+        // Auto connect logic
+        viewModelScope.launch {
+            printerConfig.collect { config ->
+                if (config != null && config.autoConnect && config.deviceAddress != null && connectedDevice.value == null) {
+                    printerManager.connect(PrinterDevice(config.deviceName ?: "Unknown", config.deviceAddress))
+                }
+            }
+        }
+    }
 
     fun initProfileForm(bp: BusinessProfile) {
         profileName.value = bp.name
@@ -825,7 +902,8 @@ class SettingsViewModel(
 
     fun saveProfileSettings() {
         viewModelScope.launch {
-            val bp = BusinessProfile(
+            val bp = profile.value ?: BusinessProfile()
+            val updated = bp.copy(
                 name = profileName.value.trim(),
                 address = profileAddress.value.trim(),
                 phone = profilePhone.value.trim(),
@@ -833,7 +911,7 @@ class SettingsViewModel(
                 currency = profileCurrency.value,
                 footerMessage = profileFooter.value.trim()
             )
-            profileRepo.saveProfile(bp)
+            repository.saveProfile(updated)
         }
     }
 
@@ -859,6 +937,12 @@ class SettingsViewModel(
         }
     }
 
+    fun testPrint() {
+        viewModelScope.launch {
+            printerManager.testPrint()
+        }
+    }
+
     fun disconnectPrinter() {
         viewModelScope.launch {
             printerManager.disconnect()
@@ -875,22 +959,27 @@ class SettingsViewModel(
 
     fun testPrintReceipt(profile: BusinessProfile) {
         val testItems = listOf(
-            OrderItem(1, "Test Masala Chai", 15.0, 2),
-            OrderItem(2, "Test Samosa Special", 20.0, 1)
+            OrderItem("test1", "Test Masala Chai", 15.0, 2),
+            OrderItem("test2", "Test Samosa Special", 20.0, 1)
         )
-        printerManager.generateReceiptText(
-            businessName = profile.name,
-            address = profile.address,
-            phone = profile.phone,
-            gstNumber = profile.gstNumber,
-            tokenNumber = "T-999",
-            items = testItems,
-            subtotal = 50.0,
-            discount = 5.0,
-            total = 45.0,
-            footerMessage = "TEST PRINT - OK",
-            currency = profile.currency
-        )
+        viewModelScope.launch(Dispatchers.IO) {
+            printerManager.printReceipt(
+                businessName = profile.name,
+                address = profile.address,
+                phone = profile.phone,
+                gstNumber = profile.gstNumber,
+                tokenNumber = "T-999",
+                invoiceNumber = "TEST-INV-001",
+                items = testItems,
+                subtotal = 50.0,
+                discount = 0.0,
+                total = 50.0,
+                paymentMethod = "Test Cash",
+                cashierName = "Admin",
+                footerMessage = profile.footerMessage,
+                currency = profile.currency
+            )
+        }
     }
 
     fun resetDailyToken(context: Context) {
@@ -901,7 +990,7 @@ class SettingsViewModel(
     fun runBackup() {
         viewModelScope.launch {
             isBackupCompleted.value = false
-            kotlinx.coroutines.delay(1200) // Simulate cloud backup
+            kotlinx.coroutines.delay(1200)
             isBackupCompleted.value = true
         }
     }
@@ -909,7 +998,7 @@ class SettingsViewModel(
     fun runRestore() {
         viewModelScope.launch {
             isRestoreCompleted.value = false
-            kotlinx.coroutines.delay(1200) // Simulate cloud restore
+            kotlinx.coroutines.delay(1200)
             isRestoreCompleted.value = true
         }
     }

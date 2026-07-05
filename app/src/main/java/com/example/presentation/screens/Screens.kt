@@ -1,7 +1,10 @@
 package com.example.presentation.screens
 
 import android.content.Context
+import android.content.res.Configuration
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -13,8 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicTextField
-import com.example.services.PrinterDevice
-import com.example.services.PrinterManager
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,12 +30,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -44,9 +47,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -54,11 +59,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.R
-import com.example.data.entity.BillingItem
-import com.example.data.entity.BusinessProfile
-import com.example.data.entity.Category
-import com.example.data.entity.OrderItem
+import com.example.OptixApplication
+import com.example.data.entity.*
 import com.example.presentation.viewmodel.*
+import com.example.services.PrinterDevice
+import com.example.services.PrinterManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -66,6 +71,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.GoogleAuthProvider
+
+// --- THEME COLORS ---
+val OrangePrimary = Color(0xFFFF6B00)
+val DarkBackground = Color(0xFF121212)
+val SurfaceDark = Color(0xFF1E1E1E)
 
 // --- MAIN SHELL SCREEN (WITH ADAPTIVE NAVIGATION) ---
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,29 +95,28 @@ fun MainShellScreen(
     staffViewModel: StaffViewModel
 ) {
     val context = LocalContext.current
-    val currentProfile = profileViewModel.profile.collectAsState(initial = null).value
+    val currentProfile by profileViewModel.profile.collectAsState(initial = null)
     val userRole by authViewModel.userRole.collectAsState()
     val isStaff = userRole == "staff"
     
-    // Auto-update the current token count state in billing VM
     LaunchedEffect(Unit) {
         billingViewModel.updateCurrentTokenState(context)
     }
 
     var currentTab by remember { mutableStateOf("billing") }
-    val isPrinterConnected = settingsViewModel.connectedDevice.collectAsState(initial = null).value != null
+    val isPrinterConnected by settingsViewModel.connectedDevice.collectAsState(initial = null)
 
-    // Screen size classes simulation (Adaptive layouts!)
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isWideScreen = maxWidth >= 600.dp
+        val width = maxWidth
+        val isWideScreen = width >= 600.dp
 
         Scaffold(
+            containerColor = DarkBackground,
             bottomBar = {
                 if (!isWideScreen) {
                     NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp,
-                        modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars)
+                        containerColor = SurfaceDark,
+                        tonalElevation = 8.dp
                     ) {
                         val navItems = if (isStaff) {
                             listOf(
@@ -116,8 +128,8 @@ fun MainShellScreen(
                             listOf(
                                 Triple("billing", "Billing", Icons.Default.ReceiptLong),
                                 Triple("history", "History", Icons.Default.History),
-                                Triple("items", "Items", Icons.Default.RestaurantMenu),
-                                Triple("analytics", "Analytics", Icons.Default.BarChart),
+                                Triple("items", "Menu", Icons.Default.RestaurantMenu),
+                                Triple("analytics", "Stats", Icons.Default.BarChart),
                                 Triple("settings", "Settings", Icons.Default.Settings)
                             )
                         }
@@ -128,11 +140,10 @@ fun MainShellScreen(
                                 selected = currentTab == route,
                                 onClick = { currentTab = route },
                                 colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                ),
-                                modifier = Modifier.testTag("nav_tab_$route")
+                                    selectedIconColor = OrangePrimary,
+                                    unselectedIconColor = Color.Gray,
+                                    indicatorColor = OrangePrimary.copy(alpha = 0.1f)
+                                )
                             )
                         }
                     }
@@ -142,31 +153,17 @@ fun MainShellScreen(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(
-                        bottom = if (isWideScreen) 0.dp else innerPadding.calculateBottomPadding(),
-                        top = innerPadding.calculateTopPadding()
-                    )
+                    .padding(innerPadding)
             ) {
                 if (isWideScreen) {
                     NavigationRail(
-                        containerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = SurfaceDark,
                         header = {
-                            Box(
-                                modifier = Modifier
-                                    .padding(vertical = 16.dp)
-                                    .size(48.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                        CircleShape
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.img_zaddy_logo),
-                                    contentDescription = "Zaddy Logo",
-                                    modifier = Modifier.size(36.dp).clip(CircleShape)
-                                )
-                            }
+                            Image(
+                                painter = painterResource(id = R.drawable.img_zaddy_logo),
+                                contentDescription = "Logo",
+                                modifier = Modifier.size(48.dp).padding(8.dp).clip(CircleShape)
+                            )
                         }
                     ) {
                         val navItems = if (isStaff) {
@@ -179,8 +176,8 @@ fun MainShellScreen(
                             listOf(
                                 Triple("billing", "Billing", Icons.Default.ReceiptLong),
                                 Triple("history", "History", Icons.Default.History),
-                                Triple("items", "Items", Icons.Default.RestaurantMenu),
-                                Triple("analytics", "Analytics", Icons.Default.BarChart),
+                                Triple("items", "Menu", Icons.Default.RestaurantMenu),
+                                Triple("analytics", "Stats", Icons.Default.BarChart),
                                 Triple("settings", "Settings", Icons.Default.Settings)
                             )
                         }
@@ -188,21 +185,20 @@ fun MainShellScreen(
                         navItems.forEach { (route, label, icon) ->
                             NavigationRailItem(
                                 icon = { Icon(icon, contentDescription = label) },
-                                label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                                label = { Text(label, fontSize = 11.sp) },
                                 selected = currentTab == route,
                                 onClick = { currentTab = route },
                                 colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                ),
-                                modifier = Modifier.testTag("nav_rail_$route")
+                                    selectedIconColor = OrangePrimary,
+                                    unselectedIconColor = Color.Gray,
+                                    indicatorColor = OrangePrimary.copy(alpha = 0.1f)
+                                )
                             )
                         }
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
 
-                // Main screen routing switcher
                 Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                     when (currentTab) {
                         "billing" -> BillingScreen(billingViewModel, currentProfile, userRole)
@@ -219,6 +215,28 @@ fun MainShellScreen(
     // Modal thermal receipt preview overlay
     val showReceipt by billingViewModel.showReceiptPreview
     val receiptText by billingViewModel.lastPrintedReceipt
+    val isPreparing by billingViewModel.isPreparingOrder
+
+    if (isPreparing) {
+        Dialog(onDismissRequest = {}) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                modifier = Modifier.size(200.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(color = OrangePrimary)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("PRINTING...", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
     if (showReceipt && receiptText != null) {
         ThermalReceiptDialog(
             receiptText = receiptText!!,
@@ -233,510 +251,204 @@ fun MainShellScreen(
 @Composable
 fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-    val isOtpSent by viewModel.isOtpSent
     val authError by viewModel.authError
     val isVerifying by viewModel.isVerifying
     val userRole by viewModel.userRole.collectAsState()
+    val context = LocalContext.current
 
-    // Auto-login side effect
+    // Google Sign-In setup
+    val gso = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+    }
+    val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)!!
+            val credential = GoogleAuthProvider.getCredential(account.idToken!!, null)
+            viewModel.signInWithGoogle(credential) { }
+        } catch (e: Exception) {
+            viewModel.authError.value = "Google Sign-In failed: ${e.message}"
+        }
+    }
+
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
             if (userRole == "staff") {
-                navController.navigate("main") {
-                    popUpTo("login") { inclusive = true }
-                }
+                navController.navigate("main") { popUpTo("login") { inclusive = true } }
             } else {
-                navController.navigate("business_setup") {
-                    popUpTo("login") { inclusive = true }
-                }
+                navController.navigate("business_setup") { popUpTo("login") { inclusive = true } }
             }
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Decorative background glowing brush lines
+    Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                color = Color(0xFFFF6B00),
-                radius = 180.dp.toPx(),
-                center = Offset(size.width, 0f),
-                alpha = 0.08f
-            )
-            drawCircle(
-                color = Color(0xFFFF8A33),
-                radius = 220.dp.toPx(),
-                center = Offset(0f, size.height),
-                alpha = 0.05f
-            )
+            drawCircle(color = OrangePrimary, radius = 200.dp.toPx(), center = Offset(size.width, 0f), alpha = 0.1f)
+            drawCircle(color = OrangePrimary, radius = 300.dp.toPx(), center = Offset(0f, size.height), alpha = 0.05f)
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Elegant brand header
             Image(
                 painter = painterResource(id = R.drawable.img_zaddy_logo),
-                contentDescription = "Zaddy Billing Logo",
-                modifier = Modifier
-                    .size(110.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .shadow(12.dp, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFF6B00), RoundedCornerShape(24.dp))
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "ZADDY BILLING",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                letterSpacing = 2.sp
-            )
-
-            Text(
-                text = "Fast Billing. Smart Business.",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.alpha(0.7f)
+                contentDescription = "Logo",
+                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(28.dp)).border(2.dp, OrangePrimary, RoundedCornerShape(28.dp))
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Role Selector Tab/Buttons
-            val isStaffMode by viewModel.isStaffMode
-            Row(
-                modifier = Modifier
-                    .widthIn(max = 400.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (!isStaffMode) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { if (isStaffMode) viewModel.toggleMode() }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Admin Login",
-                        color = if (!isStaffMode) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
+            Text("OPTIX BILLING", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 4.sp)
+            Text("Smart. Cloud. Fast.", fontSize = 16.sp, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                LoginCard(
+                    title = if (viewModel.isSignUpMode.value) "Register Admin" else "Admin Login",
+                    fields = listOf(
+                        LoginField("Email", viewModel.email, Icons.Default.Email),
+                        LoginField("Password", viewModel.password, Icons.Default.Lock, isPassword = true)
+                    ),
+                    error = authError,
+                    isLoading = isVerifying,
+                    onAction = { viewModel.authenticate { } },
+                    actionLabel = if (viewModel.isSignUpMode.value) "Create Account" else "Login"
+                )
+                
+                TextButton(onClick = { viewModel.toggleSignUpMode() }) {
+                    Text(if (viewModel.isSignUpMode.value) "Have an account? Login" else "New Admin? Register", color = OrangePrimary)
                 }
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isStaffMode) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { if (!isStaffMode) viewModel.toggleMode() }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("OR", color = Color.DarkGray, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = { launcher.launch(googleSignInClient.signInIntent) },
+                    modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp).height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color.LightGray)
                 ) {
-                    Text(
-                        text = "Staff Login",
-                        color = if (isStaffMode) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 400.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (isStaffMode) {
-                            "Staff Account Login"
-                        } else if (!isOtpSent) {
-                            "Login to Continue"
-                        } else {
-                            "Verify One-Time PIN"
-                        },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.align(Alignment.Start)
-                    )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    if (isStaffMode) {
-                        // Staff Username Input
-                        OutlinedTextField(
-                            value = viewModel.staffUsername.value,
-                            onValueChange = { viewModel.staffUsername.value = it },
-                            label = { Text("Username or Mobile") },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = "Username") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("staff_username_input"),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Staff Password Input
-                        OutlinedTextField(
-                            value = viewModel.staffPassword.value,
-                            onValueChange = { viewModel.staffPassword.value = it },
-                            label = { Text("Password") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Password") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().testTag("staff_password_input"),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                            )
-                        )
-                    } else {
-                        if (!isOtpSent) {
-                            // Mobile Input
-                            OutlinedTextField(
-                                value = viewModel.mobileNumber.value,
-                                onValueChange = {
-                                    if (it.length <= 10) viewModel.mobileNumber.value = it
-                                },
-                                label = { Text("Mobile Number") },
-                                leadingIcon = {
-                                    Row(
-                                        modifier = Modifier.padding(start = 12.dp, end = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("+91", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Box(modifier = Modifier.width(1.dp).height(18.dp).background(MaterialTheme.colorScheme.outline))
-                                    }
-                                },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("mobile_input"),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                )
-                            )
-                        } else {
-                            // OTP Input
-                            OutlinedTextField(
-                                value = viewModel.otpCode.value,
-                                onValueChange = {
-                                    if (it.length <= 4) viewModel.otpCode.value = it
-                                },
-                                label = { Text("4-Digit OTP") },
-                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = "Lock") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("otp_input"),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                )
-                            )
-                        }
-                    }
-
-                    if (authError != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = authError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Button(
-                        onClick = {
-                            if (isStaffMode) {
-                                viewModel.loginStaff {
-                                    // Managed by LaunchedEffect
-                                }
-                            } else {
-                                if (!isOtpSent) {
-                                    viewModel.sendOtp()
-                                } else {
-                                    viewModel.verifyOtp {
-                                        // Managed by LaunchedEffect
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("submit_auth_btn"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        if (isVerifying) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                        } else {
-                            Text(
-                                text = if (isStaffMode) "Login as Staff" else if (!isOtpSent) "Send OTP" else "Verify & Login",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Help indicator badge
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
-                modifier = Modifier.widthIn(max = 320.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = "Demo Tip",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Demo Mode: Enter any mobile number and use code '1234' to verify instantly.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Normal
-                    )
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Continue with Google", color = Color.DarkGray, fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 }
 
-// --- 2. FIRST-LAUNCH BUSINESS SETUP SCREEN ---
+data class LoginField(val label: String, val state: MutableState<String>, val icon: androidx.compose.ui.graphics.vector.ImageVector, val isPassword: Boolean = false)
+
+@Composable
+fun LoginCard(title: String, fields: List<LoginField>, error: String?, isLoading: Boolean, onAction: () -> Unit, actionLabel: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(modifier = Modifier.height(20.dp))
+            fields.forEach { field ->
+                OutlinedTextField(
+                    value = field.state.value,
+                    onValueChange = { field.state.value = it },
+                    label = { Text(field.label) },
+                    leadingIcon = { Icon(field.icon, null, tint = OrangePrimary) },
+                    visualTransformation = if (field.isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = OrangePrimary,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                        focusedLabelColor = OrangePrimary
+                    )
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (error != null) {
+                Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onAction,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
+            ) {
+                if (isLoading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
+                else Text(actionLabel, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+            }
+        }
+    }
+}
+
+// --- 2. BUSINESS SETUP SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupViewModel) {
     val profile by viewModel.profile.collectAsState()
     val setupError by viewModel.setupError
 
-    // If profile is already set, auto navigate to Main Screen
     LaunchedEffect(profile) {
         if (profile != null && profile?.setupCompleted == true) {
-            navController.navigate("main") {
-                popUpTo("business_setup") { inclusive = true }
-            }
+            navController.navigate("main") { popUpTo("business_setup") { inclusive = true } }
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = "Welcome to Zaddy",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Text(
-                text = "Let's set up your business details. This will appear on your printed bills.",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .alpha(0.7f)
-                    .padding(horizontal = 24.dp, vertical = 6.dp)
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
+            Text("Welcome to Optix", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("Complete your business profile to start billing.", fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(32.dp))
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 480.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                modifier = Modifier.fillMaxWidth().widthIn(max = 500.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "Store Configuration",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    OutlinedTextField(
-                        value = viewModel.businessName.value,
-                        onValueChange = { viewModel.businessName.value = it },
-                        label = { Text("Business / Store Name *") },
-                        leadingIcon = { Icon(Icons.Default.Storefront, contentDescription = "Store") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("setup_name"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
-                    )
-
-                    OutlinedTextField(
-                        value = viewModel.address.value,
-                        onValueChange = { viewModel.address.value = it },
-                        label = { Text("Store Address *") },
-                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = "Address") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("setup_address"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
-                    )
-
-                    OutlinedTextField(
-                        value = viewModel.phone.value,
-                        onValueChange = { viewModel.phone.value = it },
-                        label = { Text("Store Phone Number *") },
-                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = "Phone") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("setup_phone"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
-                    )
-
-                    OutlinedTextField(
-                        value = viewModel.gstNumber.value,
-                        onValueChange = { viewModel.gstNumber.value = it },
-                        label = { Text("GST Number (Optional)") },
-                        leadingIcon = { Icon(Icons.Default.Percent, contentDescription = "GST") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("setup_gst"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
-                    )
-
-                    // Currency Selector row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Currency Symbol:",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        val currencies = listOf("₹", "$", "€", "£", "AED")
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            currencies.forEach { sym ->
-                                val selected = viewModel.selectedCurrency.value == sym
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
-                                        )
-                                        .border(
-                                            1.dp,
-                                            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable { viewModel.selectedCurrency.value = sym },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = sym,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedTextField(
+                    value = viewModel.businessName.value, 
+                    onValueChange = { viewModel.businessName.value = it }, 
+                    label = { Text("Business Name") }, 
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                    OutlinedTextField(value = viewModel.address.value, onValueChange = { viewModel.address.value = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = viewModel.phone.value, onValueChange = { viewModel.phone.value = it }, label = { Text("Phone") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = viewModel.gstNumber.value, onValueChange = { viewModel.gstNumber.value = it }, label = { Text("GST (Optional)") }, modifier = Modifier.fillMaxWidth())
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Currency:", color = Color.White, modifier = Modifier.weight(1f))
+                        listOf("₹", "$", "€").forEach { curr ->
+                            FilterChip(
+                                selected = viewModel.selectedCurrency.value == curr,
+                                onClick = { viewModel.selectedCurrency.value = curr },
+                                label = { Text(curr) },
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
                         }
                     }
 
-                    OutlinedTextField(
-                        value = viewModel.footerMessage.value,
-                        onValueChange = { viewModel.footerMessage.value = it },
-                        label = { Text("Receipt Footer Message") },
-                        leadingIcon = { Icon(Icons.Default.Favorite, contentDescription = "Footer") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
-                    )
-
-                    if (setupError != null) {
-                        Text(
-                            text = setupError!!,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Button(
-                        onClick = { viewModel.saveBusinessProfile { } },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("save_profile_setup_btn")
-                    ) {
-                        Text("Complete Setup & Launch 🚀", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    if (setupError != null) Text(setupError!!, color = Color.Red, fontSize = 12.sp)
+                    Button(onClick = { viewModel.saveBusinessProfile { } }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)) {
+                        Text("Launch POS 🚀", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
                 }
             }
@@ -744,8 +456,7 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
     }
 }
 
-// --- 3. BILLING SCREEN (CHART / CHECKOUT GRID) ---
-@OptIn(ExperimentalFoundationApi::class)
+// --- 3. BILLING SCREEN (FRICTIONLESS) ---
 @Composable
 fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRole: String = "admin") {
     val items by viewModel.items.collectAsState()
@@ -753,868 +464,530 @@ fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRo
     val cart by viewModel.cart.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
-
     val context = LocalContext.current
-    var isSavingOrder by remember { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // Double pane or responsive cart view
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val showSplitPane = maxWidth >= 850.dp
-
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Left Content Pane (Menu)
-            Column(
-                modifier = Modifier
-                    .weight(if (showSplitPane) 1.6f else 1f)
-                    .fillMaxHeight()
-                    .padding(16.dp)
-            ) {
-                // Main Header Row (Sleek Interface Style)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = "ZADDY BILLING",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.5.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = profile?.name ?: "Zaddy Store",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(Color(0xFF10B981), CircleShape)
-                            )
-                        }
-                    }
-
-                    // Compact Search box
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { viewModel.setSearchQuery(it) },
-                        placeholder = { Text("Search menu...", fontSize = 12.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(30.dp),
-                        modifier = Modifier
-                            .width(180.dp)
-                            .height(48.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Quick Stats / Token Section (Sleek Interface Style)
-                val todaySalesVal by viewModel.todaySales.collectAsState()
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Today's Sales Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(1.dp, Color(0x0DFFFFFF)), // border-white/5 thin border
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                "TODAY'S SALES",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                letterSpacing = 0.8.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "${profile?.currency ?: "₹"}${todaySalesVal.toInt()}",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                    // Current Token Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        border = BorderStroke(1.dp, Color(0x0DFFFFFF)),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
-                    ) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    "CURRENT TOKEN",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    letterSpacing = 0.8.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "#${viewModel.currentTokenNum.value}",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Default.ReceiptLong,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .padding(end = 12.dp)
-                                    .size(32.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                            )
-                        }
-                    }
-                }
-
-                // Scrollable categories Row (Sleek Interface Style)
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    item {
-                        FilterChip(
-                            selected = selectedCategory == "All",
-                            onClick = { viewModel.setCategory("All") },
-                            label = { Text("All Menu", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = Color(0xFF1A1A1A),
-                                labelColor = Color(0xFFCBD5E1),
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.Black
-                            )
-                        )
-                    }
-                    items(categories) { cat ->
-                        FilterChip(
-                            selected = selectedCategory == cat.name,
-                            onClick = { viewModel.setCategory(cat.name) },
-                            label = { Text(cat.name, fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                containerColor = Color(0xFF1A1A1A),
-                                labelColor = Color(0xFFCBD5E1),
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.Black
-                            )
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Filter items by category & search query
-                val filteredItems = items.filter { item ->
-                    (selectedCategory == "All" || item.category == selectedCategory) &&
-                    (searchQuery.isEmpty() || item.name.contains(searchQuery, ignoreCase = true)) &&
-                    item.isAvailable
-                }
-
-                if (filteredItems.isEmpty()) {
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.Inbox,
-                                contentDescription = "Empty",
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "No available items found",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(130.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        items(filteredItems) { item ->
-                            val cartQty = cart[item] ?: 0
-
-                            // Sleek Interface Product Card
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("item_card_${item.id}")
-                                    .clickable { viewModel.addToCart(item) },
-                                shape = RoundedCornerShape(28.dp), // curved corners
-                                border = BorderStroke(
-                                    if (cartQty > 0) 2.dp else 1.dp,
-                                    if (cartQty > 0) MaterialTheme.colorScheme.primary else Color(0x0DFFFFFF)
-                                ),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFF1A1A1A)
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    // Aspect square inner container
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(1f)
-                                            .clip(RoundedCornerShape(18.dp))
-                                            .background(Color(0xFF252525)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        // Circular icon border frame
-                                        Box(
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(CircleShape)
-                                                .border(
-                                                    2.dp,
-                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                    CircleShape
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = when (item.category) {
-                                                    "Tea", "Coffee" -> Icons.Default.LocalCafe
-                                                    "Snacks" -> Icons.Default.Restaurant
-                                                    "Cool Drinks" -> Icons.Default.LocalBar
-                                                    "Desserts" -> Icons.Default.Cake
-                                                    else -> Icons.Default.Fastfood
-                                                },
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Details and optional Badge Row
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.Bottom
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = item.name,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 13.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                color = Color.White
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${profile?.currency ?: "₹"}${item.price.toInt()}",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-
-                                        if (cartQty > 0) {
-                                            // Dynamic badge pill
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(MaterialTheme.colorScheme.primary)
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "x$cartQty",
-                                                    color = Color.Black,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // If mobile and cart has items, show a quick float "View Cart" sheet trigger
-                if (!showSplitPane && cart.isNotEmpty()) {
-                    var showCartSheet by remember { mutableStateOf(false) }
-
-                    Button(
-                        onClick = { showCartSheet = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .height(50.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("View Bill (${cart.values.sum()} items)", fontWeight = FontWeight.Bold)
-                            Text("${profile?.currency ?: "₹"}${viewModel.grandTotal.toInt()}", fontWeight = FontWeight.ExtraBold)
-                        }
-                    }
-
-                    if (showCartSheet) {
-                        Dialog(
-                            onDismissRequest = { showCartSheet = false },
-                            properties = DialogProperties(usePlatformDefaultWidth = false)
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.BottomCenter
-                            ) {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .fillMaxHeight(0.8f),
-                                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                                    color = MaterialTheme.colorScheme.surface
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text("Current Bill Detail", fontWeight = FontWeight.Bold, fontSize = 18.dp.value.sp)
-                                            IconButton(onClick = { showCartSheet = false }) {
-                                                Icon(Icons.Default.Close, contentDescription = "Close")
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Box(modifier = Modifier.weight(1f)) {
-                                            CartListContent(viewModel, profile)
-                                        }
-                                        CheckoutActionPanel(viewModel, profile) {
-                                            showCartSheet = false
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    if (isLandscape) {
+        Row(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+            // LEFT: MENU
+            Column(modifier = Modifier.weight(0.6f).fillMaxHeight().padding(8.dp)) {
+                BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
             }
-
-            // Right Pane (Split Cart Checkouts)
-            if (showSplitPane) {
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Current Bill",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Box(modifier = Modifier.weight(1f)) {
-                            CartListContent(viewModel, profile)
-                        }
-
-                        Divider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
-
-                        CheckoutActionPanel(viewModel, profile) { }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Inner cart helper
-@Composable
-fun CartListContent(viewModel: BillingViewModel, profile: BusinessProfile?) {
-    val cart by viewModel.cart.collectAsState()
-
-    if (cart.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Default.ShoppingCart,
-                    contentDescription = "Empty Cart",
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    "Bill is empty",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    fontSize = 13.sp
-                )
+            // RIGHT: CART
+            Column(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                BillingCartSection(viewModel, profile)
             }
         }
     } else {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(cart.entries.toList()) { (item, qty) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            item.name,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "${profile?.currency ?: "₹"}${item.price.toInt()} each",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Count Controllers
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        IconButton(
-                            onClick = { viewModel.removeFromCart(item) },
-                            modifier = Modifier
-                                .size(30.dp)
-                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), CircleShape)
-                        ) {
-                            Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(14.dp))
-                        }
-
-                        Text(
-                            text = qty.toString(),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            modifier = Modifier.widthIn(min = 16.dp),
-                            textAlign = TextAlign.Center
-                        )
-
-                        IconButton(
-                            onClick = { viewModel.addToCart(item) },
-                            modifier = Modifier
-                                .size(30.dp)
-                                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), CircleShape)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(14.dp))
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    // Item Total price
-                    Text(
-                        text = "${profile?.currency ?: "₹"}${(item.price * qty).toInt()}",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+        Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+            // TOP: MENU
+            Column(modifier = Modifier.weight(0.55f).padding(8.dp)) {
+                BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
+            }
+            // BOTTOM: CART (Fixed size but content scrollable)
+            Box(modifier = Modifier.weight(0.45f).fillMaxWidth()) {
+                BillingCartSection(viewModel, profile)
             }
         }
     }
 }
 
-// Inner Checkout actions panel
 @Composable
-fun CheckoutActionPanel(
+fun BillingMenuSection(
     viewModel: BillingViewModel,
     profile: BusinessProfile?,
-    onPrePrintComplete: () -> Unit
+    items: List<BillingItem>,
+    categories: List<Category>,
+    selectedCategory: String,
+    searchQuery: String
 ) {
-    val cart by viewModel.cart.collectAsState()
-    val subtotal = viewModel.subtotal
-    val discount = viewModel.discount
-    val total = viewModel.grandTotal
-    val context = LocalContext.current
-    var discountText by viewModel.discountValue
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Summary rows
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Subtotal", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("${profile?.currency ?: "₹"}${subtotal.toInt()}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Header & Search
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(profile?.name?.uppercase() ?: "STORE", fontSize = 16.sp, fontWeight = FontWeight.Black, color = OrangePrimary)
+            Text("TOKEN #${viewModel.currentTokenNum.value}", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
         }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Discount", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Enter custom discount in place
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text("- ${profile?.currency ?: "₹"}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                BasicTextField(
-                    value = discountText,
-                    onValueChange = { discountText = it },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.End
-                    ),
-                    modifier = Modifier
-                        .width(50.dp)
-                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Grand Total", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text("${profile?.currency ?: "₹"}${total.toInt()}", fontWeight = FontWeight.Black, fontSize = 17.sp, color = MaterialTheme.colorScheme.primary)
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text("Payment Method", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        var selectedMethod by remember { mutableStateOf("Cash") }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(2.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            val methods = listOf("Cash", "UPI", "Card", "Other")
-            methods.forEach { m ->
-                val isSelected = selectedMethod == m
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                        .clickable { selectedMethod = m }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = m,
-                        color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            OutlinedButton(
-                onClick = { viewModel.clearCart() },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .testTag("clear_bill_btn"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Clear", modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Clear", fontSize = 13.sp)
-            }
-
-            Button(
-                onClick = {
-                    if (cart.isEmpty()) {
-                        Toast.makeText(context, "Bill is empty!", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    if (profile == null) {
-                        Toast.makeText(context, "Please complete business profile setup!", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-                    val currentStaffName = com.example.ZaddyApplication.instance.authManager.staffName.value ?: "Admin"
-                    viewModel.saveAndPrintBill(
-                        context = context,
-                        profile = profile,
-                        cashierName = currentStaffName,
-                        paymentMethod = selectedMethod
-                    ) {
-                        onPrePrintComplete()
-                        Toast.makeText(context, "Bill Generated successfully!", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier
-                    .weight(2f)
-                    .height(48.dp)
-                    .testTag("print_bill_btn"),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Icon(Icons.Default.Print, contentDescription = "Print")
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("PRINT BILL", fontWeight = FontWeight.Black, fontSize = 14.sp)
-            }
-        }
-    }
-}
-
-// --- 4. ORDER HISTORY / REPRINTS SCREEN ---
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, userRole: String = "admin") {
-    val orders by viewModel.filteredOrders.collectAsState()
-    val timeFilter by viewModel.timeFilter.collectAsState()
-    val searchQuery by viewModel.searchTokenQuery.collectAsState()
-
-    var showReceiptPreviewDialog by remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Order History",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            // Horizontal Filter Chips
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("Today", "Weekly", "Monthly").forEach { filter ->
-                    val selected = timeFilter == filter
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(30.dp))
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-                            )
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(30.dp))
-                            .clickable { viewModel.setTimeFilter(filter) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = filter,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Search Orders
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { viewModel.setSearchQuery(it) },
-            placeholder = { Text("Search by Token #, Item name...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
+            placeholder = { Text("Search...", fontSize = 12.sp) },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary, modifier = Modifier.size(18.dp)) },
+            shape = RoundedCornerShape(30.dp),
+            modifier = Modifier.width(160.dp).height(54.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = OrangePrimary,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.05f)
+            ),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+            singleLine = true
         )
+    }
 
-        Spacer(modifier = Modifier.height(14.dp))
+    Spacer(modifier = Modifier.height(8.dp))
 
-        if (orders.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.HistoryToggleOff,
-                        contentDescription = "No orders",
-                        modifier = Modifier.size(56.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    // Categories Row
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            FilterChip(
+                selected = selectedCategory == "All",
+                onClick = { viewModel.setCategory("All") },
+                label = { Text("All", fontSize = 11.sp) },
+                shape = RoundedCornerShape(10.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = OrangePrimary,
+                    selectedLabelColor = Color.Black,
+                    containerColor = SurfaceDark,
+                    labelColor = Color.Gray
+                ),
+                border = null,
+                modifier = Modifier.height(32.dp)
+            )
+        }
+        items(categories) { cat ->
+            FilterChip(
+                selected = selectedCategory == cat.name,
+                onClick = { viewModel.setCategory(cat.name) },
+                label = { Text(cat.name, fontSize = 11.sp) },
+                shape = RoundedCornerShape(10.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = OrangePrimary,
+                    selectedLabelColor = Color.Black,
+                    containerColor = SurfaceDark,
+                    labelColor = Color.Gray
+                ),
+                border = null,
+                modifier = Modifier.height(32.dp)
+            )
+        }
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Items Grid
+    val filteredItems = items.filter { it.isAvailable && (selectedCategory == "All" || it.categoryName == selectedCategory) && it.name.contains(searchQuery, ignoreCase = true) }
+    
+    val configuration = LocalConfiguration.current
+    val columns = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 4 else 3
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(columns),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(filteredItems) { item ->
+            ItemCard(item, viewModel, profile)
+        }
+    }
+}
+
+@Composable
+fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessProfile?) {
+    val cart by viewModel.cart.collectAsState()
+    val qty = cart[item.id] ?: 0
+    val scope = rememberCoroutineScope()
+    val scale = remember { Animatable(1f) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .graphicsLayer(scaleX = scale.value, scaleY = scale.value)
+            .clickable {
+                scope.launch {
+                    scale.animateTo(0.95f, animationSpec = tween(100))
+                    scale.animateTo(1f, animationSpec = tween(100))
+                }
+                viewModel.addToCart(item)
+            },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        border = if (qty > 0) BorderStroke(1.5.dp, OrangePrimary) else null
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (false && !item.imageUrl.isNullOrEmpty()) { // Disabled images
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "No transactions found for $timeFilter",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        fontSize = 13.sp
-                    )
+                } else {
+                    Icon(Icons.Default.Fastfood, null, tint = OrangePrimary.copy(alpha = 0.2f), modifier = Modifier.size(32.dp))
+                }
+                
+                if (qty > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(OrangePrimary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("$qty", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+            Text("${profile?.currency ?: "₹"}${item.price.toInt()}", fontSize = 12.sp, color = OrangePrimary, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+@Composable
+fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
+    val context = LocalContext.current
+    val cart by viewModel.cart.collectAsState()
+    val subtotal by viewModel.cartSubtotal.collectAsState()
+    val discount = viewModel.discount
+    val grandTotal = (subtotal - discount).coerceAtLeast(0.0)
+    val allItems by viewModel.items.collectAsState()
+    
+    Card(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 0.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black),
+        border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.3f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 12.dp)) {
+            // Cart Header (Fixed)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ShoppingCart, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("CURRENT BILL", fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 1.sp, fontSize = 14.sp)
+                Spacer(modifier = Modifier.weight(1f))
+                if (cart.isNotEmpty()) {
+                    Surface(color = OrangePrimary.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
+                        Text("${cart.values.sum()} ITEMS", color = OrangePrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Everything else except Buttons is scrollable
+            Box(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Cart Items
+                    if (cart.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillParentMaxHeight(0.5f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Text("Empty Bill", color = Color.DarkGray, fontSize = 12.sp)
+                            }
+                        }
+                    } else {
+                        items(cart.entries.toList(), key = { it.key }) { (itemId, qty) ->
+                            val item = allItems.find { it.id == itemId } ?: return@items
+                            CartItemRow(item, qty, viewModel, profile)
+                        }
+                    }
+
+                    // Totals Section (Now inside Scrollable)
+                    if (cart.isNotEmpty()) {
+                        item {
+                            Column(modifier = Modifier.padding(top = 16.dp)) {
+                                Divider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Subtotal", color = Color.Gray, fontSize = 12.sp)
+                                    Text("${profile?.currency ?: "₹"}${subtotal.toInt()}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Discount", color = Color.Gray, fontSize = 12.sp)
+                                    Text("- ${profile?.currency ?: "₹"}${discount.toInt()}", color = OrangePrimary, fontSize = 12.sp)
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+                                    val pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                                    drawLine(color = Color.Gray.copy(alpha = 0.2f), start = Offset(0f, 0.5f), end = Offset(size.width, 0.5f), pathEffect = pathEffect, strokeWidth = 1.dp.toPx())
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text("TOTAL", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                                    Text("${profile?.currency ?: "₹"}${grandTotal.toInt()}", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                                }
+                                
+                                Spacer(modifier = Modifier.height(16.dp))
+                                PaymentMethodSelector(viewModel)
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fixed Buttons at the very bottom
+            Spacer(modifier = Modifier.height(12.dp))
+            FixedActionButtons(viewModel, profile, cart.isNotEmpty(), context)
+        }
+    }
+}
+
+@Composable
+fun CartItemRow(item: BillingItem, qty: Int, viewModel: BillingViewModel, profile: BusinessProfile?) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Item Icon (Fixed Size)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White.copy(alpha = 0.05f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Coffee, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
+        }
+        
+        Spacer(modifier = Modifier.width(10.dp))
+        
+        // Name and Unit Price (Flexible)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${profile?.currency ?: "₹"}${item.price.toInt()}", fontSize = 11.sp, color = OrangePrimary)
+        }
+        
+        // Quantity Controls (No Overlap)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        ) {
+            Surface(
+                onClick = { viewModel.removeFromCart(item) },
+                modifier = Modifier.size(28.dp),
+                shape = CircleShape,
+                color = Color.White.copy(alpha = 0.1f)
             ) {
-                items(orders) { order ->
-                    val dateFormatted = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(order.timestamp))
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                }
+            }
+            
+            Text(
+                text = "$qty",
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 10.dp),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center
+            )
+            
+            Surface(
+                onClick = { viewModel.addToCart(item) },
+                modifier = Modifier.size(28.dp),
+                shape = CircleShape,
+                color = OrangePrimary
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        // Total Price for this item
+        Text(
+            text = "${profile?.currency ?: "₹"}${(item.price * qty).toInt()}",
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            fontSize = 13.sp,
+            modifier = Modifier.widthIn(min = 40.dp),
+            textAlign = TextAlign.End
+        )
+        
+        Spacer(modifier = Modifier.width(4.dp))
+        
+        // Delete Button
+        IconButton(
+            onClick = { viewModel.clearItemFromCart(item) },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(Icons.Default.Delete, null, tint = Color.DarkGray, modifier = Modifier.size(16.dp))
+        }
+    }
+}
 
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                        modifier = Modifier.fillMaxWidth()
+@Composable
+fun PaymentMethodSelector(viewModel: BillingViewModel) {
+    val paymentMethod by viewModel.paymentMethod
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("Cash", "UPI", "Card").forEach { method ->
+            val selected = paymentMethod == method
+            Surface(
+                modifier = Modifier.weight(1f).height(40.dp).clickable { viewModel.paymentMethod.value = method },
+                shape = RoundedCornerShape(10.dp),
+                color = if (selected) OrangePrimary.copy(alpha = 0.1f) else Color.Transparent,
+                border = BorderStroke(1.dp, if (selected) OrangePrimary else Color.White.copy(alpha = 0.1f))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                    RadioButton(selected = selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary, unselectedColor = Color.Gray), modifier = Modifier.scale(0.8f))
+                    Text(method, color = if (selected) OrangePrimary else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FixedActionButtons(viewModel: BillingViewModel, profile: BusinessProfile?, hasItems: Boolean, context: Context) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = { viewModel.clearCart() },
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
+        ) {
+            Text("CLEAR", fontWeight = FontWeight.Black, color = Color.White, fontSize = 12.sp)
+        }
+        Button(
+            onClick = {
+                val staffName = OptixApplication.instance.authManager.staffName.value ?: "Admin"
+                viewModel.saveAndPrintBill(context, profile ?: return@Button, staffName) { 
+                    Toast.makeText(context, "ORDER PLACED", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.weight(2f).height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+            enabled = hasItems
+        ) {
+            Icon(Icons.Default.Print, null, tint = Color.Black, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("PRINT", fontWeight = FontWeight.ExtraBold, color = Color.Black, fontSize = 14.sp)
+        }
+    }
+}
+
+// --- 4. HISTORY SCREEN ---
+@Composable
+fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, userRole: String = "admin") {
+    val orders by viewModel.filteredOrders.collectAsState()
+    val searchTokenQuery by viewModel.searchTokenQuery.collectAsState()
+    val timeFilter by viewModel.timeFilter.collectAsState()
+    val previewText by viewModel.viewReceiptText.collectAsState()
+
+    if (previewText != null) {
+        ThermalReceiptDialog(
+            receiptText = previewText!!,
+            currency = profile?.currency ?: "₹",
+            onDismiss = { viewModel.hideReceiptPreview() }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("ORDER HISTORY", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp, modifier = Modifier.weight(1f))
+            
+            Row(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark).padding(4.dp)) {
+                listOf("Today", "Weekly", "All").forEach { tf ->
+                    val selected = timeFilter == tf
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) OrangePrimary else Color.Transparent)
+                            .clickable { viewModel.setTimeFilter(tf) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Token Number display
-                            Box(
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                        RoundedCornerShape(12.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "TOKEN",
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = order.tokenNumber,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                        Text(tf, color = if (selected) Color.Black else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = searchTokenQuery,
+            onValueChange = { viewModel.setSearchQuery(it) },
+            placeholder = { Text("Search by token or item...", color = Color.Gray) },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(16.dp),
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = OrangePrimary,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                unfocusedContainerColor = SurfaceDark,
+                focusedContainerColor = SurfaceDark
+            )
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(orders) { order ->
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(OrangePrimary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                                    Text("#${order.tokenNumber.takeLast(2)}", color = OrangePrimary, fontWeight = FontWeight.Black)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("Token #${order.tokenNumber}", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+                                    val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                                    Text(sdf.format(Date(order.timestamp)), color = Color.Gray, fontSize = 12.sp)
                                 }
                             }
+                            Text("${profile?.currency ?: "₹"}${order.total.toInt()}", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 20.sp)
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Divider(color = Color.White.copy(alpha = 0.05f))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            // Details
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${profile?.currency ?: "₹"}${order.total.toInt()}",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 16.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = dateFormatted,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Payment, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(order.paymentMethod, color = Color.Gray, fontSize = 13.sp)
                             }
-
-                            // Quick actions: Reprint / View receipt / Delete
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                IconButton(
-                                    onClick = {
-                                        if (profile != null) {
-                                            viewModel.reprintOrder(order, profile)
-                                            Toast.makeText(context, "Resent to printer!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Print, contentDescription = "Reprint", tint = MaterialTheme.colorScheme.primary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Person, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(order.cashierName, color = Color.Gray, fontSize = 13.sp)
+                            }
+                            
+                            Row {
+                                IconButton(onClick = { viewModel.showReceiptPreview(order, profile ?: return@IconButton) }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Visibility, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
                                 }
-
-                                IconButton(
-                                    onClick = {
-                                        // View on screen
-                                        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-                                        val type = Types.newParameterizedType(List::class.java, OrderItem::class.java)
-                                        val adapter = moshi.adapter<List<OrderItem>>(type)
-                                        val items = adapter.fromJson(order.orderItemsJson) ?: emptyList()
-
-                                        val helper = com.example.services.PrinterManager.getInstance()
-                                        val receipt = helper.generateReceiptText(
-                                            businessName = profile?.name ?: "Zaddy",
-                                            address = profile?.address ?: "",
-                                            phone = profile?.phone ?: "",
-                                            gstNumber = profile?.gstNumber,
-                                            tokenNumber = order.tokenNumber,
-                                            items = items,
-                                            subtotal = order.subtotal,
-                                            discount = order.discount,
-                                            total = order.total,
-                                            footerMessage = profile?.footerMessage ?: "Visit Again",
-                                            currency = profile?.currency ?: "₹",
-                                            invoiceNumber = order.invoiceNumber,
-                                            cashierName = order.cashierName,
-                                            paymentMethod = order.paymentMethod
-                                        )
-                                        showReceiptPreviewDialog = receipt
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Visibility, contentDescription = "View Receipt", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                IconButton(onClick = { viewModel.reprintOrder(order, profile ?: return@IconButton) }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Print, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
                                 }
-
-                                if (userRole != "staff") {
-                                    IconButton(
-                                        onClick = { viewModel.deleteOrder(order) }
-                                    ) {
-                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                if (userRole == "admin") {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    IconButton(onClick = { viewModel.deleteOrder(order) }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }
@@ -1624,172 +997,161 @@ fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, u
             }
         }
     }
-
-    if (showReceiptPreviewDialog != null) {
-        ThermalReceiptDialog(
-            receiptText = showReceiptPreviewDialog!!,
-            currency = profile?.currency ?: "₹",
-            onDismiss = { showReceiptPreviewDialog = null }
-        )
-    }
 }
 
-// --- 5. ITEMS / INVENTORY CRUD SCREEN ---
-@OptIn(ExperimentalMaterial3Api::class)
+// --- 5. ITEMS SCREEN ---
 @Composable
 fun ItemsScreen(viewModel: ItemsViewModel) {
     val items by viewModel.items.collectAsState()
     val categories by viewModel.categories.collectAsState()
-
     var showAddDialog by remember { mutableStateOf(false) }
-    var itemToEdit by remember { mutableStateOf<BillingItem?>(null) }
+    var selectedItemForEdit by remember { mutableStateOf<BillingItem?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var filterCategory by remember { mutableStateOf("All") }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // Header row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Manage Items",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("MANAGE MENU", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp, modifier = Modifier.weight(1f))
             Button(
-                onClick = {
+                onClick = { 
                     viewModel.clearForm()
-                    itemToEdit = null
-                    showAddDialog = true
-                },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.testTag("add_item_btn")
+                    selectedItemForEdit = null
+                    showAddDialog = true 
+                }, 
+                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Item")
+                Icon(Icons.Default.Add, null, tint = Color.Black)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Add Item", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("ADD ITEM", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         }
+        
+        Spacer(modifier = Modifier.height(20.dp))
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // Create Custom Category Row
-        Card(
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = viewModel.customCategoryName.value,
-                    onValueChange = { viewModel.customCategoryName.value = it },
-                    placeholder = { Text("New Category name...") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    shape = RoundedCornerShape(10.dp)
+        // Search & Category Management
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search items...", color = Color.Gray) },
+                modifier = Modifier.weight(1f).height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OrangePrimary,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                    unfocusedContainerColor = SurfaceDark,
+                    focusedContainerColor = SurfaceDark
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    onClick = { viewModel.addCustomCategory() },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(50.dp)
-                ) {
-                    Text("+ Category")
-                }
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            var showAddCat by remember { mutableStateOf(false) }
+            IconButton(
+                onClick = { showAddCat = true },
+                modifier = Modifier.background(SurfaceDark, RoundedCornerShape(12.dp)).size(50.dp)
+            ) {
+                Icon(Icons.Default.Category, null, tint = OrangePrimary)
             }
-            val catError by viewModel.categoryError
-            if (catError != null) {
-                Text(catError!!, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
+
+            if (showAddCat) {
+                AlertDialog(
+                    onDismissRequest = { showAddCat = false },
+                    containerColor = SurfaceDark,
+                    title = { Text("Add Category", color = Color.White) },
+                    text = {
+                        OutlinedTextField(
+                            value = viewModel.customCategoryName.value,
+                            onValueChange = { viewModel.customCategoryName.value = it },
+                            label = { Text("Category Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    },
+                    confirmButton = {
+                        Button(onClick = { viewModel.addCustomCategory(); showAddCat = false }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)) {
+                            Text("ADD", color = Color.Black)
+                        }
+                    }
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Items Grid
-        if (items.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("No items on the menu. Click Add Item to start!")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                FilterChip(
+                    selected = filterCategory == "All",
+                    onClick = { filterCategory = "All" },
+                    label = { Text("All") },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
+                )
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(items) { item ->
-                    Card(
-                        shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                    ) {
-                        Row(
+            items(categories) { cat ->
+                FilterChip(
+                    selected = filterCategory == cat.name,
+                    onClick = { filterCategory = cat.name },
+                    label = { Text(cat.name) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        val filteredList = items.filter { 
+            (filterCategory == "All" || it.categoryName == filterCategory) &&
+            it.name.contains(searchQuery, ignoreCase = true)
+        }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(filteredList) { item ->
+                Card(
+                    shape = RoundedCornerShape(20.dp), 
+                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.05f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        item.name,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                                RoundedCornerShape(6.dp)
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(item.category, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                                Text(
-                                    "Price: ${item.price}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Text(item.name.take(1).uppercase(), color = OrangePrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                            Text(item.categoryName, fontSize = 12.sp, color = Color.Gray)
+                            Text("Rs.${item.price.toInt()}", fontSize = 14.sp, color = OrangePrimary, fontWeight = FontWeight.Black)
+                        }
+                        
+                        Column(horizontalAlignment = Alignment.End) {
+                            Switch(
+                                checked = item.isAvailable, 
+                                onCheckedChange = { viewModel.toggleAvailability(item) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = OrangePrimary,
+                                    checkedTrackColor = OrangePrimary.copy(alpha = 0.3f),
+                                    uncheckedThumbColor = Color.White,
+                                    uncheckedTrackColor = Color.Gray.copy(alpha = 0.3f)
                                 )
-                            }
-
-                            // Available Toggle
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Switch(
-                                    checked = item.isAvailable,
-                                    onCheckedChange = { viewModel.toggleAvailability(item) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Color.White,
-                                        checkedTrackColor = MaterialTheme.colorScheme.primary
-                                    )
-                                )
-
-                                IconButton(
-                                    onClick = {
-                                        itemToEdit = item
-                                        viewModel.fillForm(item)
-                                        showAddDialog = true
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary)
+                            )
+                            Row {
+                                IconButton(onClick = { 
+                                    viewModel.fillForm(item)
+                                    selectedItemForEdit = item
+                                    showAddDialog = true
+                                }) { 
+                                    Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) 
                                 }
-
-                                IconButton(onClick = { viewModel.deleteItem(item) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                IconButton(onClick = { viewModel.deleteItem(item) }) { 
+                                    Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.4f), modifier = Modifier.size(20.dp)) 
                                 }
                             }
                         }
@@ -1799,925 +1161,487 @@ fun ItemsScreen(viewModel: ItemsViewModel) {
         }
     }
 
-    // Modal dialog for Add / Edit Item Form
     if (showAddDialog) {
-        val formError by viewModel.formError
-
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text(if (itemToEdit == null) "Add Menu Item" else "Edit Menu Item") },
+            containerColor = SurfaceDark,
+            title = { Text(if (selectedItemForEdit == null) "Add Item" else "Edit Item", color = Color.White) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedTextField(
-                        value = viewModel.itemName.value,
-                        onValueChange = { viewModel.itemName.value = it },
+                        value = viewModel.itemName.value, 
+                        onValueChange = { viewModel.itemName.value = it }, 
                         label = { Text("Item Name") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("item_form_name")
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
                     )
-
-                    // Category Dropdown simulated
-                    var dropExpanded by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = viewModel.itemPrice.value, 
+                        onValueChange = { viewModel.itemPrice.value = it }, 
+                        label = { Text("Price") }, 
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
                         OutlinedTextField(
-                            value = viewModel.itemCategory.value,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Category") },
-                            trailingIcon = { IconButton(onClick = { dropExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            value = viewModel.itemCategory.value, 
+                            onValueChange = {}, 
+                            label = { Text("Category") }, 
+                            readOnly = true, 
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = { IconButton(onClick = { expanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
                         )
-                        DropdownMenu(
-                            expanded = dropExpanded,
-                            onDismissRequest = { dropExpanded = false }
-                        ) {
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                             categories.forEach { cat ->
-                                DropdownMenuItem(
-                                    text = { Text(cat.name) },
-                                    onClick = {
-                                        viewModel.itemCategory.value = cat.name
-                                        dropExpanded = false
-                                    }
-                                )
+                                DropdownMenuItem(text = { Text(cat.name) }, onClick = { viewModel.itemCategory.value = cat.name; expanded = false })
                             }
                         }
                     }
-
-                    OutlinedTextField(
-                        value = viewModel.itemPrice.value,
-                        onValueChange = { viewModel.itemPrice.value = it },
-                        label = { Text("Price") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("item_form_price")
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Available on Menu")
-                        Switch(
-                            checked = viewModel.itemAvailable.value,
-                            onCheckedChange = { viewModel.itemAvailable.value = it }
-                        )
-                    }
-
-                    if (formError != null) {
-                        Text(formError!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                    }
                 }
             },
-            confirmButton = {
+            confirmButton = { 
                 Button(
-                    onClick = {
-                        viewModel.saveItem(itemToEdit) {
-                            showAddDialog = false
-                        }
-                    },
-                    modifier = Modifier.testTag("save_item_confirm_btn")
-                ) {
-                    Text("Save Item")
-                }
+                    onClick = { viewModel.saveItem(selectedItemForEdit) { showAddDialog = false } },
+                    enabled = !viewModel.isSaving.value,
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
+                ) { 
+                    if (viewModel.isSaving.value) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
+                    } else {
+                        Text("SAVE ITEM", color = Color.Black, fontWeight = FontWeight.Bold) 
+                    }
+                } 
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel")
+                    Text("CANCEL", color = Color.Gray)
                 }
             }
         )
     }
 }
 
-// --- 6. SALES ANALYTICS SCREEN ---
+// --- 6. ANALYTICS SCREEN ---
 @Composable
 fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
     val metrics by viewModel.metrics.collectAsState()
     val timeFrame by viewModel.timeFrame.collectAsState()
+    val context = LocalContext.current
+    var showDownloadOptions by remember { mutableStateOf(false) }
+    
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("ANALYTICS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
+                Text("Insights for your business", color = Color.Gray, fontSize = 12.sp)
+            }
+            
+            Box {
+                IconButton(
+                    onClick = { showDownloadOptions = true },
+                    modifier = Modifier.background(SurfaceDark, CircleShape)
+                ) {
+                    Icon(Icons.Default.Download, null, tint = OrangePrimary)
+                }
+                DropdownMenu(expanded = showDownloadOptions, onDismissRequest = { showDownloadOptions = false }) {
+                    DropdownMenuItem(text = { Text("Download PDF") }, onClick = { viewModel.downloadReport(context, "PDF"); showDownloadOptions = false })
+                    DropdownMenuItem(text = { Text("Export CSV") }, onClick = { viewModel.downloadReport(context, "CSV"); showDownloadOptions = false })
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(20.dp))
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Header Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Row(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark).padding(4.dp)) {
+            listOf("Today", "Weekly", "Monthly").forEach { tf ->
+                val selected = timeFrame == tf
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected) OrangePrimary else Color.Transparent)
+                        .clickable { viewModel.setTimeFrame(tf) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(tf, color = if (selected) Color.Black else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        // Key Performance Indicators
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(label = "TOTAL REVENUE", value = "Rs.${metrics.totalSales.toInt()}", modifier = Modifier.weight(1.2f), isPrimary = true)
+            StatCard(label = "ORDERS", value = "${metrics.numBills}", modifier = Modifier.weight(0.8f))
+        }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(label = "AVG BILL", value = "Rs.${metrics.averageOrderValue.toInt()}", modifier = Modifier.weight(1f))
+            StatCard(label = "PEAK HOUR", value = metrics.peakHour, modifier = Modifier.weight(1f))
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Sales Chart Card
+        Card(
+            shape = RoundedCornerShape(24.dp), 
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = "Sales Analytics",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.TrendingUp, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("SALES TREND", fontWeight = FontWeight.Black, color = Color.White, fontSize = 15.sp)
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                SalesTrendChart(metrics.chartPoints)
+            }
+        }
 
-            // Timeline select
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("Today", "Weekly", "Monthly").forEach { tf ->
-                    val selected = timeFrame == tf
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(30.dp))
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-                            )
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(30.dp))
-                            .clickable { viewModel.setTimeFrame(tf) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = tf,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Top Products List
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("TOP PRODUCTS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+            TextButton(onClick = { }) {
+                Text("VIEW ALL", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (metrics.topSellingItems.isEmpty()) {
+                    Text("No sales data yet", color = Color.Gray, modifier = Modifier.padding(20.dp).align(Alignment.CenterHorizontally))
+                }
+                metrics.topSellingItems.forEach { item ->
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.White.copy(alpha = 0.05f)), 
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(item.name.take(1).uppercase(), color = OrangePrimary, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Rs.${item.totalRevenue.toInt()}", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(OrangePrimary.copy(alpha = 0.1f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("${item.quantity} sold", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Payment Breakdown
+        Text("PAYMENT DISTRIBUTION", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (metrics.paymentBreakdown.isEmpty()) {
+                    Text("Waiting for transactions...", color = Color.Gray, modifier = Modifier.padding(10.dp).align(Alignment.CenterHorizontally))
+                }
+                metrics.paymentBreakdown.forEach { (method, amount) ->
+                    val percentage = if (metrics.totalSales > 0) (amount / metrics.totalSales).toFloat() else 0f
+                    Column {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(method, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("Rs.${amount.toInt()} (${(percentage * 100).toInt()}%)", color = Color.Gray, fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = percentage,
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                            color = OrangePrimary,
+                            trackColor = Color.White.copy(alpha = 0.05f)
                         )
                     }
                 }
             }
         }
+        Spacer(modifier = Modifier.height(60.dp))
+    }
+}
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Visual Sales Cards (KPIs)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Card 1: Revenue
-            Card(
-                modifier = Modifier.weight(1.2f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text("REVENUE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${profile?.currency ?: "₹"}${String.format(Locale.US, "%.0f", metrics.totalSales)}",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            // Card 2: Orders
-            Card(
-                modifier = Modifier.weight(0.9f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text("BILLS", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = metrics.numBills.toString(),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            // Card 3: Average Order Value
-            Card(
-                modifier = Modifier.weight(1.1f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text("AVG BILL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "${profile?.currency ?: "₹"}${metrics.averageOrderValue.toInt()}",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Curved Canvas Sales Curve Graph
-        Text("Revenue Growth Trend", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(12.dp)
-            ) {
-                if (metrics.chartPoints.isEmpty() || metrics.chartPoints.all { it.value == 0.0 }) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No sales data available to plot", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    SalesTrendChart(points = metrics.chartPoints)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // Top Selling items list
-        Text("Top Performing Items", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (metrics.topSellingItems.isEmpty()) {
-                    Text("No item sales recorded yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
-                } else {
-                    metrics.topSellingItems.forEachIndexed { idx, topItem ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${idx + 1}.",
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 14.sp,
-                                modifier = Modifier.width(24.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(topItem.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("${topItem.quantity} units sold", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(
-                                "${profile?.currency ?: "₹"}${topItem.totalRevenue.toInt()}",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp
-                            )
-                        }
-                        if (idx < metrics.topSellingItems.size - 1) {
-                            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), thickness = 0.5.dp)
-                        }
-                    }
-                }
-            }
+@Composable
+fun StatCard(label: String, value: String, modifier: Modifier, isPrimary: Boolean = false) {
+    Card(modifier = modifier, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = if (isPrimary) OrangePrimary else SurfaceDark)) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isPrimary) Color.Black.copy(alpha = 0.6f) else Color.Gray)
+            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Black, color = if (isPrimary) Color.Black else Color.White)
         }
     }
 }
 
-// Custom curving canvas graph
 @Composable
 fun SalesTrendChart(points: List<ChartPoint>) {
-    val maxVal = (points.maxOfOrNull { it.value } ?: 100.0).coerceAtLeast(100.0)
-
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val width = size.width
-        val height = size.height
-        val paddingLeft = 40.dp.toPx()
-        val paddingBottom = 20.dp.toPx()
-        val chartWidth = width - paddingLeft
-        val chartHeight = height - paddingBottom
-
-        val stepX = chartWidth / (points.size - 1).coerceAtLeast(1)
-        val path = Path()
-        val fillPath = Path()
-
-        val coordinates = points.mapIndexed { idx, pt ->
-            val ratio = pt.value / maxVal
-            val x = paddingLeft + idx * stepX
-            val y = chartHeight - (ratio * chartHeight).toFloat()
-            Offset(x, y)
+    if (points.isEmpty()) {
+        Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+            Text("No data available", color = Color.Gray)
         }
-
-        // Draw Line & Fill curve
-        if (coordinates.isNotEmpty()) {
-            path.moveTo(coordinates[0].x, coordinates[0].y)
-            fillPath.moveTo(coordinates[0].x, chartHeight)
-            fillPath.lineTo(coordinates[0].x, coordinates[0].y)
-
-            for (i in 1 until coordinates.size) {
-                // Bezier curving for smooth aesthetics
-                val prev = coordinates[i - 1]
-                val curr = coordinates[i]
-                val cp1X = prev.x + (curr.x - prev.x) / 2
-                val cp1Y = prev.y
-                val cp2X = prev.x + (curr.x - prev.x) / 2
-                val cp2Y = curr.y
-
-                path.cubicTo(cp1X, cp1Y, cp2X, cp2Y, curr.x, curr.y)
-                fillPath.cubicTo(cp1X, cp1Y, cp2X, cp2Y, curr.x, curr.y)
-            }
-
-            fillPath.lineTo(coordinates.last().x, chartHeight)
-            fillPath.close()
-
-            // Draw orange transparent gradient under curve
-            drawPath(
-                path = fillPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFFF6B00).copy(alpha = 0.35f), Color.Transparent),
-                    startY = 0f,
-                    endY = chartHeight
+        return
+    }
+    
+    val maxValue = (points.maxOfOrNull { it.value } ?: 0.0).coerceAtLeast(1.0)
+    
+    Row(
+        modifier = Modifier.fillMaxWidth().height(150.dp).padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        points.forEach { point ->
+            val ratio = (point.value / maxValue).toFloat()
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.4f)
+                        .fillMaxHeight(ratio.coerceAtLeast(0.05f))
+                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(OrangePrimary, OrangePrimary.copy(alpha = 0.3f))
+                            )
+                        )
                 )
-            )
-
-            // Draw high contrast line
-            drawPath(
-                path = path,
-                color = Color(0xFFFF6B00),
-                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-            )
-
-            // Draw glowing node circles on top of lines
-            coordinates.forEach { node ->
-                drawCircle(color = Color.White, radius = 5.dp.toPx(), center = node)
-                drawCircle(color = Color(0xFFFF6B00), radius = 3.dp.toPx(), center = node)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(point.label, fontSize = 8.sp, color = Color.Gray, maxLines = 1)
             }
         }
     }
 }
 
-// --- 7. SETTINGS & PROFILE SCREEN ---
+// --- 7. SETTINGS SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(
-    viewModel: SettingsViewModel,
-    profileViewModel: BusinessSetupViewModel,
-    navController: NavController,
-    userRole: String = "admin",
-    staffViewModel: StaffViewModel
-) {
-    val profile = viewModel.profile.collectAsState(initial = null).value
-    val printerConfig = viewModel.printerConfig.collectAsState(initial = null).value
-    val scannedDevices = viewModel.scannedDevices.collectAsState(initial = emptyList()).value
-    val isScanning = viewModel.isScanning.collectAsState(initial = false).value
-    val connectedDevice = viewModel.connectedDevice.collectAsState(initial = null).value
-
+fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetupViewModel, navController: NavController, userRole: String = "admin", staffViewModel: StaffViewModel) {
+    val profile by viewModel.profile.collectAsState(initial = null)
     val context = LocalContext.current
+    LaunchedEffect(profile) { profile?.let { viewModel.initProfileForm(it) } }
 
-    // Initialize the forms if profile is loaded
-    LaunchedEffect(profile) {
-        profile?.let { viewModel.initProfileForm(it) }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "Settings & Configuration",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        // 1. Store Config Update
-        if (userRole != "staff") {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Edit Store Profile", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
-
-                    OutlinedTextField(
-                        value = viewModel.profileName.value,
-                        onValueChange = { viewModel.profileName.value = it },
-                        label = { Text("Store Name") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("settings_name")
-                    )
-
-                    OutlinedTextField(
-                        value = viewModel.profileAddress.value,
-                        onValueChange = { viewModel.profileAddress.value = it },
-                        label = { Text("Address") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("settings_address")
-                    )
-
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("SETTINGS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
+        
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("BUSINESS PROFILE", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 16.sp)
+                
+                OutlinedTextField(
+                    value = viewModel.profileName.value,
+                    onValueChange = { viewModel.profileName.value = it },
+                    label = { Text("Business Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                
+                OutlinedTextField(
+                    value = viewModel.profileAddress.value,
+                    onValueChange = { viewModel.profileAddress.value = it },
+                    label = { Text("Address") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = viewModel.profilePhone.value,
                         onValueChange = { viewModel.profilePhone.value = it },
-                        label = { Text("Phone Number") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("settings_phone")
+                        label = { Text("Phone") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
                     )
-
                     OutlinedTextField(
                         value = viewModel.profileGst.value,
                         onValueChange = { viewModel.profileGst.value = it },
-                        label = { Text("GST (Optional)") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().testTag("settings_gst")
+                        label = { Text("GST NO") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
                     )
+                }
 
-                    OutlinedTextField(
-                        value = viewModel.profileFooter.value,
-                        onValueChange = { viewModel.profileFooter.value = it },
-                        label = { Text("Receipt Footer Message") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                OutlinedTextField(
+                    value = viewModel.profileFooter.value,
+                    onValueChange = { viewModel.profileFooter.value = it },
+                    label = { Text("Receipt Footer Message") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
 
-                    Button(
-                        onClick = {
-                            viewModel.saveProfileSettings()
-                            Toast.makeText(context, "Store Profile Saved!", Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.align(Alignment.End).testTag("save_settings_btn")
-                    ) {
-                        Text("Save Changes")
-                    }
+                Button(
+                    onClick = { viewModel.saveProfileSettings() },
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("UPDATE BUSINESS INFO", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // 2. Printer settings
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Bluetooth Thermal Printer Settings", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+        // Printer Settings
+        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            val connectedDevice by viewModel.connectedDevice.collectAsState()
+            val scannedDevices by viewModel.scannedDevices.collectAsState()
+            val isScanning by viewModel.isScanning.collectAsState()
+            val printerError by viewModel.printerError.collectAsState()
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = if (connectedDevice != null) "Connected: ${connectedDevice!!.name}" else "Status: Disconnected",
-                            fontWeight = FontWeight.Bold,
-                            color = if (connectedDevice != null) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface
-                        )
-                        if (connectedDevice != null) {
-                            Text(connectedDevice!!.address, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("PRINTER CONFIGURATION", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 16.sp)
+                
+                if (connectedDevice != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Print, null, tint = Color.Green, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(connectedDevice!!.name, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(connectedDevice!!.address, color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(onClick = { viewModel.logout() /* Add disconnect if needed */ }) {
+                            Text("DISCONNECT", color = Color.Red)
                         }
                     }
-
-                    if (connectedDevice != null) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Button(
-                                onClick = { profile?.let { viewModel.testPrintReceipt(it) } },
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("Test Print", fontSize = 12.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { viewModel.disconnectPrinter() },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("Disconnect", fontSize = 12.sp)
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = { viewModel.scanPrinters() },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.testTag("scan_printers_btn")
-                        ) {
-                            if (isScanning) {
-                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
-                            } else {
-                                Text("Search Printer", fontSize = 12.sp)
-                            }
-                        }
+                    Button(
+                        onClick = { viewModel.testPrint() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("TEST PRINT")
+                    }
+                } else {
+                    Text("No printer connected", color = Color.Gray, fontSize = 14.sp)
+                    if (printerError != null) {
+                        Text(printerError!!, color = Color.Red, fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = { viewModel.scanPrinters() },
+                        enabled = !isScanning,
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isScanning) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
+                        else Text("SCAN FOR PRINTERS", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                if (connectedDevice == null && scannedDevices.isNotEmpty()) {
-                    Text("Available Printers found nearby:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    scannedDevices.forEach { dev ->
+                if (scannedDevices.isNotEmpty() && connectedDevice == null) {
+                    Text("AVAILABLE PRINTERS", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    scannedDevices.forEach { device ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                                .clickable { viewModel.connectPrinter(dev) }
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .clickable { viewModel.connectPrinter(device) }
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Print, contentDescription = "Printer", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(dev.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text(dev.address, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Text("Connect ➜", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Bluetooth, null, tint = Color.Gray)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(device.name, color = Color.White, modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
                         }
                     }
                 }
             }
         }
 
-        // 3. Quick Maintenance Tools & Actions
-        if (userRole != "staff") {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("System Operations", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.height(16.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Reset Daily Token Number", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Manually reset token generation back to #001.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(
-                            onClick = {
-                                viewModel.resetDailyToken(context)
-                                Toast.makeText(context, "Token Number Reset!", Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text("Reset Token", fontSize = 12.sp)
-                        }
-                    }
-
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Cloud Backup & Sync", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Push transaction logs & menus offline cache to cloud.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(
-                            onClick = { viewModel.runBackup() },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            val active by viewModel.isBackupCompleted
-                            if (active) Text("Synced ✓") else Text("Backup Now")
-                        }
-                    }
-
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Cloud Recovery", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Fetch cloud database copy into offline database.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(
-                            onClick = { viewModel.runRestore() },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            val active by viewModel.isRestoreCompleted
-                            if (active) Text("Restored ✓") else Text("Restore Now")
-                        }
-                    }
-                }
-            }
-        }
-
-        // Staff Accounts Management
-        if (userRole != "staff") {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Staff Accounts Management", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
-                    
-                    val staffList by staffViewModel.allStaff.collectAsState()
-                    val editingStaff by staffViewModel.editingStaff
-                    
-                    OutlinedTextField(
-                        value = staffViewModel.staffName.value,
-                        onValueChange = { staffViewModel.staffName.value = it },
-                        label = { Text("Staff Name") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = staffViewModel.username.value,
-                        onValueChange = { staffViewModel.username.value = it },
-                        label = { Text("Username or Mobile") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = staffViewModel.password.value,
-                        onValueChange = { staffViewModel.password.value = it },
-                        label = { Text("Password") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Disable Staff Account", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Switch(
-                            checked = staffViewModel.isDisabled.value,
-                            onCheckedChange = { staffViewModel.isDisabled.value = it }
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (editingStaff != null) {
-                            TextButton(onClick = { staffViewModel.clearFields() }) {
-                                Text("Cancel")
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                        Button(
-                            onClick = {
-                                staffViewModel.saveStaff {
-                                    Toast.makeText(context, "Staff account saved!", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text(if (editingStaff != null) "Update Staff" else "Create Staff")
-                        }
-                    }
-
-                    if (staffList.isNotEmpty()) {
-                        Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-                        Text("Existing Staff Accounts:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        
-                        staffList.forEach { staff ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(10.dp))
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(staff.name, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("User: ${staff.username} | Pass: ${staff.password}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (staff.isDisabled) {
-                                        Text("DISABLED", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                                    }
-                                }
-
-                                Row {
-                                    IconButton(onClick = { staffViewModel.startEditing(staff) }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(onClick = { staffViewModel.deleteStaff(staff) }) {
-                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Logout / Session end
         Button(
-            onClick = {
-                viewModel.logout()
-                navController.navigate("login") {
-                    popUpTo(0) { inclusive = true }
-                }
-                Toast.makeText(context, "Logged out of Zaddy!", Toast.LENGTH_SHORT).show()
-            },
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.error),
-            modifier = Modifier.fillMaxWidth().height(50.dp).testTag("logout_btn")
+            onClick = { viewModel.logout(); navController.navigate("login") { popUpTo(0) } }, 
+            modifier = Modifier.fillMaxWidth().height(56.dp), 
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.1f), contentColor = Color.Red),
+            border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
         ) {
-            Icon(Icons.Default.Logout, contentDescription = "Logout")
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("Logout Business Session", fontWeight = FontWeight.Bold)
+            Icon(Icons.Default.Logout, null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("LOGOUT ACCOUNT", fontWeight = FontWeight.Bold)
         }
-
-        Spacer(modifier = Modifier.height(10.dp))
+        
+        Spacer(modifier = Modifier.height(40.dp))
     }
 }
 
-// --- VIRTUAL ESC/POS 58MM PAPER RECEIPT PREVIEW DIALOG ---
 @Composable
-fun ThermalReceiptDialog(
-    receiptText: String,
-    currency: String,
-    onDismiss: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
+fun ThermalReceiptDialog(receiptText: String, currency: String, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.75f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onDismiss() },
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
         ) {
-            // Receipt Content Frame
-            Card(
-                modifier = Modifier
-                    .width(320.dp)
-                    .wrapContentHeight()
-                    .padding(16.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { /* Consuming click to prevent dismissal */ },
-                shape = RoundedCornerShape(4.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFBFBFA)), // Cream off-white paper color
-                elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Serrated paper tearing header
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(12.dp)
+            Column(modifier = Modifier.padding(24.dp)) {
+                // Receipt Header
+                Text(
+                    "RECEIPT PREVIEW",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                    color = Color.Black,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Receipt Content (Fixed Width 58mm feel)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF9F9F9), RoundedCornerShape(8.dp))
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = receiptText,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = Color.Black
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        val triangleWidth = 10.dp.toPx()
-                        val triangleHeight = 6.dp.toPx()
-                        val numTriangles = (size.width / triangleWidth).toInt() + 1
-                        val path = Path()
-                        path.moveTo(0f, 0f)
-                        for (i in 0..numTriangles) {
-                            val x1 = i * triangleWidth
-                            val y1 = triangleHeight
-                            val x2 = (i + 0.5f) * triangleWidth
-                            val y2 = 0f
-                            val x3 = (i + 1f) * triangleWidth
-                            val y3 = triangleHeight
-                            path.lineTo(x1, y1)
-                            path.lineTo(x2, y2)
-                            path.lineTo(x3, y3)
-                        }
-                        path.lineTo(size.width, size.height)
-                        path.lineTo(0f, size.height)
-                        path.close()
-                        drawPath(path = path, color = Color(0xFFE5E5DF))
+                        Text("DONE", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
-
-                    // Content details
-                    Column(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .verticalScroll(rememberScrollState())
+                    Button(
+                        onClick = { /* Share Logic */ },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        // Header metadata info
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "58mm Thermal Receipt",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Gray,
-                                fontFamily = FontFamily.Monospace
-                            )
-
-                            Icon(
-                                Icons.Default.Print,
-                                contentDescription = "POS Printer Status",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // Parse receipt text formatted with helper codes
-                        val cleanReceiptLines = receiptText.split("\n")
-                        cleanReceiptLines.forEach { line ->
-                            val isBold = line.contains("<b>")
-                            val isCenter = line.contains("[C]")
-                            val isRight = line.contains("[R]")
-
-                            val stripCodes = line
-                                .replace("<b>", "")
-                                .replace("</b>", "")
-                                .replace("[C]", "")
-                                .replace("[L]", "")
-                                .replace("[R]", "")
-
-                            if (stripCodes.isNotBlank() || line.isEmpty()) {
-                                Text(
-                                    text = stripCodes,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isBold) FontWeight.Black else FontWeight.Normal,
-                                    color = Color(0xFF111111), // Jet black ink
-                                    textAlign = when {
-                                        isCenter -> TextAlign.Center
-                                        isRight -> TextAlign.End
-                                        else -> TextAlign.Start
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    lineHeight = 14.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = onDismiss,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF111111),
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Text("Done", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
-
-                    // Bottom serrated tear paper cut
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(12.dp)
-                    ) {
-                        val triangleWidth = 10.dp.toPx()
-                        val triangleHeight = 6.dp.toPx()
-                        val numTriangles = (size.width / triangleWidth).toInt() + 1
-                        val path = Path()
-                        path.moveTo(0f, size.height)
-                        for (i in 0..numTriangles) {
-                            val x1 = i * triangleWidth
-                            val y1 = size.height - triangleHeight
-                            val x2 = (i + 0.5f) * triangleWidth
-                            val y2 = size.height
-                            val x3 = (i + 1f) * triangleWidth
-                            val y3 = size.height - triangleHeight
-                            path.lineTo(x1, y1)
-                            path.lineTo(x2, y2)
-                            path.lineTo(x3, y3)
-                        }
-                        path.lineTo(size.width, 0f)
-                        path.lineTo(0f, 0f)
-                        path.close()
-                        drawPath(path = path, color = Color(0xFFE5E5DF))
+                        Icon(Icons.Default.Share, null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SHARE", color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }
