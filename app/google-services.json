@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "839222086587",
+    "project_id": "poss-d7b19",
+    "storage_bucket": "poss-d7b19.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:839222086587:android:1f2420c0eea7643babd29e",
+        "android_client_info": {
+          "package_name": "com.aistudio.zaddybilling.qpxbwm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "839222086587-2bh8qjek28nlp127h5gvofmbv81047ho.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.zaddybilling.qpxbwm",
+            "certificate_hash": "a84856c16aa732c50dd6613a403145c2e20b61e9"
+          }
+        },
+        {
+          "client_id": "839222086587-om9amgoko7edbv2so42n9eq6f7f6bvvs.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9f3TRx8kkJB5hjiPHfHI8ODuvV-sYWCA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "839222086587-om9amgoko7edbv2so42n9eq6f7f6bvvs.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

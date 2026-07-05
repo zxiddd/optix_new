@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">Zaddy Billing</string>
+    <string name="app_name">Optix Billing Solution</string>
+    <!-- Replace with your actual Web Client ID from Google Cloud Console -->
+    <string name="default_web_client_id">839222086587-om9amgoko7edbv2so42n9eq6f7f6bvvs.apps.googleusercontent.com</string>
 </resources>

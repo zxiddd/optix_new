@@ -8,7 +8,7 @@ import com.example.services.PrinterManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 
-class ZaddyApplication : Application() {
+class OptixApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob())
 
     val database by lazy { AppDatabase.getDatabase(this, applicationScope) }
@@ -21,7 +21,7 @@ class ZaddyApplication : Application() {
     val staffRepository by lazy { StaffRepository(database.staffDao()) }
 
     val authManager by lazy { AuthManager.getInstance(this) }
-    val printerManager by lazy { PrinterManager.getInstance() }
+    val printerManager by lazy { PrinterManager.getInstance(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -29,7 +29,7 @@ class ZaddyApplication : Application() {
     }
 
     companion object {
-        lateinit var instance: ZaddyApplication
+        lateinit var instance: OptixApplication
             private set
     }
 }

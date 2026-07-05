@@ -1,10 +1,14 @@
 package com.example.services
 
+import android.annotation.SuppressLint
+import android.content.Context
 import com.example.data.entity.OrderItem
+import com.example.data.repository.PrinterConfigRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -12,11 +16,14 @@ import java.util.Locale
 data class PrinterDevice(
     val name: String,
     val address: String,
-    val signalStrength: Int,
+    val signalStrength: Int = 0,
     val isConnected: Boolean = false
 )
 
-class PrinterManager {
+class PrinterManager private constructor(private val context: Context) {
+    private val btService = BluetoothPrinterService(context)
+    private val generator = ReceiptGenerator()
+
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
@@ -26,123 +33,111 @@ class PrinterManager {
     private val _scannedDevices = MutableStateFlow<List<PrinterDevice>>(emptyList())
     val scannedDevices: StateFlow<List<PrinterDevice>> = _scannedDevices.asStateFlow()
 
-    private val _printedReceipts = MutableStateFlow<List<String>>(emptyList())
-    val printedReceipts: StateFlow<List<String>> = _printedReceipts.asStateFlow()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
 
-    init {
-        // Default scanned list
-        _scannedDevices.value = listOf(
-            PrinterDevice("POS-58 Printer", "00:11:22:33:44:55", 5),
-            PrinterDevice("BT Printer 2", "66:77:88:99:AA:BB", 4),
-            PrinterDevice("Thermal Printer", "11:22:33:44:55:66", 3)
-        )
-    }
-
+    @SuppressLint("MissingPermission")
     suspend fun scanDevices() {
         _isScanning.value = true
-        _scannedDevices.value = emptyList()
-        delay(1500) // Simulate scanning
-        _scannedDevices.value = listOf(
-            PrinterDevice("POS-58 Printer", "00:11:22:33:44:55", 5),
-            PrinterDevice("BT Printer 2", "66:77:88:99:AA:BB", 4),
-            PrinterDevice("Thermal Printer", "11:22:33:44:55:66", 3)
-        )
-        _isScanning.value = false
+        _error.value = null
+        try {
+            val paired = btService.getPairedDevices()
+            _scannedDevices.value = paired.map { 
+                PrinterDevice(it.name ?: "Unknown", it.address) 
+            }
+        } catch (e: Exception) {
+            _error.value = "Failed to scan: ${e.message}"
+        } finally {
+            _isScanning.value = false
+        }
     }
 
     suspend fun connect(device: PrinterDevice): Boolean {
-        delay(800) // Simulate connecting
-        _connectedDevice.value = device.copy(isConnected = true)
-        return true
+        _error.value = null
+        val success = btService.connect(device.address)
+        if (success) {
+            _connectedDevice.value = device.copy(isConnected = true)
+        } else {
+            _error.value = "Could not connect to ${device.name}"
+        }
+        return success
     }
 
     suspend fun disconnect() {
-        delay(400)
+        btService.disconnect()
         _connectedDevice.value = null
     }
 
-    fun printRawText(text: String): Boolean {
-        val currentList = _printedReceipts.value.toMutableList()
-        currentList.add(0, text)
-        _printedReceipts.value = currentList
-        return true
-    }
-
-    fun generateReceiptText(
+    suspend fun printReceipt(
         businessName: String,
         address: String,
         phone: String,
         gstNumber: String?,
         tokenNumber: String,
+        invoiceNumber: String,
         items: List<OrderItem>,
         subtotal: Double,
         discount: Double,
         total: Double,
+        paymentMethod: String,
+        cashierName: String,
         footerMessage: String,
-        currency: String = "₹",
-        invoiceNumber: String = "",
-        cashierName: String = "Admin",
-        paymentMethod: String = "Cash"
+        currency: String = "Rs",
+        shouldPrint: Boolean = true
     ): String {
-        val line = "--------------------------------" // 32 chars wide for 58mm printer
-        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-        val dateTime = sdf.format(Date())
+        val bytes = generator.generateEscPosBytes(
+            businessName, address, phone, gstNumber, tokenNumber, 
+            invoiceNumber, items, subtotal, discount, total, 
+            paymentMethod, cashierName, footerMessage, currency
+        )
+        
+        if (shouldPrint) {
+            if (btService.isConnected()) {
+                btService.print(bytes)
+            } else {
+                _error.value = "Printer not connected. Saved to history."
+            }
+        }
 
-        val sb = java.lang.StringBuilder()
-        sb.append("[C]<b>$businessName</b>\n")
-        sb.append("[C]$address\n")
-        sb.append("[C]Ph: $phone\n")
-        if (!gstNumber.isNullOrBlank()) {
-            sb.append("[C]GST: $gstNumber\n")
+        // Return a clean string version for the UI preview
+        return buildString {
+            append("$businessName\n")
+            append("$address\n")
+            append("Ph: $phone\n")
+            if (!gstNumber.isNullOrBlank()) append("GST: $gstNumber\n")
+            append("--------------------------------\n")
+            append("TOKEN NO: $tokenNumber\n")
+            append("--------------------------------\n")
+            append("Inv: $invoiceNumber\n")
+            append("Mode: $paymentMethod\n")
+            append("--------------------------------\n")
+            for (item in items) {
+                append("${item.itemName.padEnd(18)} ${item.quantity}  ${(item.price * item.quantity).toInt()}\n")
+            }
+            append("--------------------------------\n")
+            append("TOTAL: $currency ${total.toInt()}\n")
+            append("--------------------------------\n")
+            append("Thank You!\n")
         }
-        sb.append("[C]$line\n")
-        sb.append("[C]<b>TOKEN : $tokenNumber</b>\n")
-        sb.append("[C]$line\n")
-        if (invoiceNumber.isNotEmpty()) {
-            sb.append("[L]Inv No: $invoiceNumber\n")
-        }
-        sb.append("[L]Cashier: $cashierName\n")
-        sb.append("[L]Date: $dateTime\n")
-        sb.append("[L]Payment: $paymentMethod\n")
-        sb.append("[C]$line\n")
-        
-        // Items header
-        sb.append("[L]Item               Qty  Price  Total\n")
-        sb.append("[C]$line\n")
-        
-        for (item in items) {
-            val namePart = if (item.itemName.length > 15) item.itemName.substring(0, 15) else item.itemName.padEnd(15)
-            val qtyPart = item.quantity.toString().padStart(3)
-            val priceStr = String.format(Locale.US, "%.0f", item.price).padStart(5)
-            val totalStr = String.format(Locale.US, "%.0f", item.price * item.quantity).padStart(6)
-            sb.append("[L]$namePart$qtyPart $priceStr $totalStr\n")
-        }
-        
-        sb.append("[C]$line\n")
-        sb.append("[R]Subtotal: $currency${String.format(Locale.US, "%.2f", subtotal)}\n")
-        if (discount > 0) {
-            sb.append("[R]Discount: -$currency${String.format(Locale.US, "%.2f", discount)}\n")
-        }
-        sb.append("[R]<b>GRAND TOTAL: $currency${String.format(Locale.US, "%.2f", total)}</b>\n")
-        sb.append("[C]$line\n")
-        sb.append("[C]$footerMessage\n")
-        sb.append("[C]<b>Powered by Zaddy Billing</b>\n\n\n\n")
+    }
 
-        val receiptText = sb.toString()
-        printRawText(receiptText)
-        return receiptText
+    suspend fun testPrint(): Boolean {
+        if (!btService.isConnected()) return false
+        val testBytes = "Optix Billing Solution\nTest Print Successful\n\n\n\n".toByteArray()
+        return btService.print(testBytes)
     }
 
     companion object {
         @Volatile
         private var INSTANCE: PrinterManager? = null
 
-        fun getInstance(): PrinterManager {
+        fun getInstance(context: Context): PrinterManager {
             return INSTANCE ?: synchronized(this) {
-                val instance = PrinterManager()
+                val instance = PrinterManager(context.applicationContext)
                 INSTANCE = instance
                 instance
             }
         }
     }
 }
+
