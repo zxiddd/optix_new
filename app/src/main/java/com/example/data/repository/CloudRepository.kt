@@ -97,4 +97,18 @@ class CloudRepository(private val userId: String) {
     suspend fun deleteStaff(staffId: String) {
         userDoc.collection("staff").document(staffId).delete().await()
     }
+
+    // --- Subscriptions ---
+    val subscription: Flow<UserSubscription?> = userDoc.collection("config")
+        .document("subscription")
+        .snapshots()
+        .map { it.toObject<UserSubscription>() }
+
+    suspend fun saveSubscription(sub: UserSubscription) {
+        userDoc.collection("config").document("subscription").set(sub).await()
+    }
+
+    suspend fun getAvailablePlans(): List<SubscriptionPlan> {
+        return db.collection("plans").get().await().toObjects<SubscriptionPlan>()
+    }
 }

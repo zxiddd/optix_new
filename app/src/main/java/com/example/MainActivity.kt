@@ -12,8 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,9 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.presentation.screens.*
-import com.example.presentation.viewmodel.AuthViewModel
-import com.example.presentation.viewmodel.BusinessSetupViewModel
-import com.example.presentation.viewmodel.ViewModelFactory
+import com.example.presentation.viewmodel.*
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
@@ -32,7 +29,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         setContent {
-            MyApplicationTheme {
+            val application = OptixApplication.instance
+            val factory = ViewModelFactory(application)
+            val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+            val profile by settingsViewModel.profile.collectAsState(initial = null)
+            
+            val isDark = true // Defaulting to true as requested to remove dark mode toggle
+
+            MyApplicationTheme(darkTheme = isDark) {
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
                 ) { }
@@ -82,11 +86,16 @@ fun OptixBillingApp() {
     val authViewModel: AuthViewModel = viewModel(factory = factory)
     val profileViewModel: BusinessSetupViewModel = viewModel(factory = factory)
     
-    // Check initial destination: if logged in AND business setup is done, go straight to main shell (Auto Login!)
-    val startDestination = when {
-        authViewModel.isLoggedIn.value && (authViewModel.userRole.value == "staff" || profileViewModel.profile.value != null) -> "main"
-        authViewModel.isLoggedIn.value -> "business_setup"
-        else -> "login"
+    // Check initial destination ONCE
+    val startDestination = remember {
+        val isLoggedIn = authViewModel.isLoggedIn.value
+        val userRole = authViewModel.userRole.value
+        val profile = profileViewModel.profile.value
+        when {
+            isLoggedIn && (userRole == "staff" || profile?.setupCompleted == true) -> "main"
+            isLoggedIn -> "business_setup"
+            else -> "login"
+        }
     }
 
     NavHost(
@@ -114,6 +123,31 @@ fun OptixBillingApp() {
                 settingsViewModel = viewModel(factory = factory),
                 staffViewModel = viewModel(factory = factory)
             )
+        }
+
+        composable("receipt_customization") {
+            val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+            ReceiptCustomizationScreen(navController, settingsViewModel)
+        }
+
+        composable("payment_accounts") {
+            val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+            PaymentAccountsScreen(navController, settingsViewModel)
+        }
+
+        composable("manage_categories") {
+            val itemsViewModel: ItemsViewModel = viewModel(factory = factory)
+            ManageCategoriesScreen(navController, itemsViewModel)
+        }
+
+        composable("subscription") {
+            val subViewModel: SubscriptionViewModel = viewModel(factory = factory)
+            SubscriptionScreen(navController, subViewModel)
+        }
+
+        composable("support") {
+            val aiViewModel: AiAssistantViewModel = viewModel(factory = factory)
+            SupportScreen(navController, aiViewModel)
         }
     }
 }
