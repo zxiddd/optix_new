@@ -11,7 +11,22 @@ import com.example.data.entity.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-@Database(entities = [BusinessProfile::class, BillingItem::class, Category::class, BillOrder::class, PrinterConfig::class, Staff::class], version = 2, exportSchema = false)
+@Database(
+    entities = [
+        BusinessProfile::class, 
+        BillingItem::class, 
+        Category::class, 
+        BillOrder::class, 
+        PrinterConfig::class, 
+        Staff::class, 
+        DailyReport::class, 
+        UserSubscription::class, 
+        PaymentQrEntity::class,
+        SupportTicket::class
+    ], 
+    version = 11, 
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun businessProfileDao(): BusinessProfileDao
     abstract fun billingItemDao(): BillingItemDao
@@ -19,6 +34,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun billOrderDao(): BillOrderDao
     abstract fun printerConfigDao(): PrinterConfigDao
     abstract fun staffDao(): StaffDao
+    abstract fun dailyReportDao(): DailyReportDao
+    abstract fun subscriptionDao(): SubscriptionDao
+    abstract fun paymentQrDao(): PaymentQrDao
+    abstract fun supportTicketDao(): SupportTicketDao
 
     companion object {
         @Volatile
@@ -31,7 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "zaddy_pos_db"
                 )
-                .fallbackToDestructiveMigration() // Simple for this major upgrade
+                .fallbackToDestructiveMigration()
                 .addCallback(AppDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance

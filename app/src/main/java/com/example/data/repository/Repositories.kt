@@ -24,6 +24,10 @@ class BillingItemRepository(private val dao: BillingItemDao) {
     suspend fun delete(item: BillingItem) = dao.deleteItem(item)
 
     suspend fun deleteById(itemId: String) = dao.deleteItemById(itemId)
+
+    suspend fun moveItemsToCategory(oldCatId: String, newCatId: String) = dao.moveItemsToCategory(oldCatId, newCatId)
+
+    suspend fun deleteItemsByCategory(catId: String) = dao.deleteItemsByCategory(catId)
 }
 
 class CategoryRepository(private val dao: CategoryDao) {
@@ -32,6 +36,8 @@ class CategoryRepository(private val dao: CategoryDao) {
     suspend fun getAllCategoriesSync(): List<Category> = dao.getAllCategoriesSync()
 
     suspend fun insert(category: Category) = dao.insertCategory(category)
+
+    suspend fun update(category: Category) = dao.updateCategory(category)
 
     suspend fun delete(category: Category) = dao.deleteCategory(category)
 }
@@ -66,4 +72,37 @@ class StaffRepository(private val dao: StaffDao) {
     suspend fun update(staff: Staff) = dao.updateStaff(staff)
 
     suspend fun delete(staff: Staff) = dao.deleteStaff(staff)
+}
+
+class DailyReportRepository(private val dao: DailyReportDao) {
+    val allReports: Flow<List<DailyReport>> = dao.getAllReports()
+
+    suspend fun insert(report: DailyReport) = dao.insertReport(report)
+
+    suspend fun delete(report: DailyReport) = dao.deleteReport(report)
+}
+
+class SubscriptionRepository(private val dao: SubscriptionDao) {
+    val subscription: Flow<UserSubscription?> = dao.getSubscription()
+
+    suspend fun saveSubscription(sub: UserSubscription) = dao.insertSubscription(sub)
+}
+
+class PaymentQrRepository(private val dao: PaymentQrDao) {
+    val allQrs: Flow<List<PaymentQrEntity>> = dao.getAllQrs()
+    val activeQr: Flow<PaymentQrEntity?> = dao.getActiveQrFlow()
+
+    suspend fun getActiveQrSync(): PaymentQrEntity? = dao.getActiveQr()
+
+    suspend fun insert(qr: PaymentQrEntity) = dao.insertQr(qr)
+
+    suspend fun delete(qr: PaymentQrEntity) = dao.deleteQr(qr)
+
+    suspend fun setActive(qrId: String) = dao.setActiveQr(qrId)
+}
+
+class SupportTicketRepository(private val dao: SupportTicketDao) {
+    val allTickets: Flow<List<SupportTicket>> = dao.getAllTickets()
+
+    suspend fun insert(ticket: SupportTicket) = dao.insertTicket(ticket)
 }

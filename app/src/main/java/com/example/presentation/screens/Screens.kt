@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.R
@@ -77,10 +79,78 @@ import com.google.firebase.auth.GoogleAuthProvider
 
 // --- THEME COLORS ---
 val OrangePrimary = Color(0xFFFF6B00)
-val DarkBackground = Color(0xFF121212)
-val SurfaceDark = Color(0xFF1E1E1E)
+val DarkBackground = Color(0xFF0A0A0A)
+val SurfaceDark = Color(0xFF1C1C1E)
 
-// --- MAIN SHELL SCREEN (WITH ADAPTIVE NAVIGATION) ---
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PremiumCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = onClick ?: {},
+                        onLongClick = onLongClick
+                    )
+                } else Modifier
+            ),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun SettingsItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    trailing: @Composable (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(OrangePrimary.copy(alpha = 0.1f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            if (subtitle != null) {
+                Text(subtitle, color = Color.Gray, fontSize = 13.sp)
+            }
+        }
+        if (trailing != null) {
+            trailing()
+        } else if (onClick != null) {
+            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
+        }
+    }
+}
+
+// --- MAIN SHELL SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainShellScreen(
@@ -104,7 +174,6 @@ fun MainShellScreen(
     }
 
     var currentTab by remember { mutableStateOf("billing") }
-    val isPrinterConnected by settingsViewModel.connectedDevice.collectAsState(initial = null)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val width = maxWidth
@@ -114,14 +183,11 @@ fun MainShellScreen(
             containerColor = DarkBackground,
             bottomBar = {
                 if (!isWideScreen) {
-                    NavigationBar(
-                        containerColor = SurfaceDark,
-                        tonalElevation = 8.dp
-                    ) {
+                    NavigationBar(containerColor = SurfaceDark) {
                         val navItems = if (isStaff) {
                             listOf(
                                 Triple("billing", "Billing", Icons.Default.ReceiptLong),
-                                Triple("history", "History", Icons.Default.History),
+                                Triple("items", "Menu", Icons.Default.RestaurantMenu),
                                 Triple("settings", "Settings", Icons.Default.Settings)
                             )
                         } else {
@@ -150,26 +216,13 @@ fun MainShellScreen(
                 }
             }
         ) { innerPadding ->
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
+            Row(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 if (isWideScreen) {
-                    NavigationRail(
-                        containerColor = SurfaceDark,
-                        header = {
-                            Image(
-                                painter = painterResource(id = R.drawable.img_zaddy_logo),
-                                contentDescription = "Logo",
-                                modifier = Modifier.size(48.dp).padding(8.dp).clip(CircleShape)
-                            )
-                        }
-                    ) {
+                    NavigationRail(containerColor = SurfaceDark) {
                         val navItems = if (isStaff) {
                             listOf(
                                 Triple("billing", "Billing", Icons.Default.ReceiptLong),
-                                Triple("history", "History", Icons.Default.History),
+                                Triple("items", "Menu", Icons.Default.RestaurantMenu),
                                 Triple("settings", "Settings", Icons.Default.Settings)
                             )
                         } else {
@@ -181,7 +234,6 @@ fun MainShellScreen(
                                 Triple("settings", "Settings", Icons.Default.Settings)
                             )
                         }
-                        Spacer(modifier = Modifier.weight(1f))
                         navItems.forEach { (route, label, icon) ->
                             NavigationRailItem(
                                 icon = { Icon(icon, contentDescription = label) },
@@ -195,7 +247,6 @@ fun MainShellScreen(
                                 )
                             )
                         }
-                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
 
@@ -203,7 +254,7 @@ fun MainShellScreen(
                     when (currentTab) {
                         "billing" -> BillingScreen(billingViewModel, currentProfile, userRole)
                         "history" -> HistoryScreen(historyViewModel, currentProfile, userRole)
-                        "items" -> ItemsScreen(itemsViewModel)
+                        "items" -> ItemsScreen(itemsViewModel, navController)
                         "analytics" -> AnalyticsScreen(analyticsViewModel, currentProfile)
                         "settings" -> SettingsScreen(settingsViewModel, profileViewModel, navController, userRole, staffViewModel)
                     }
@@ -212,23 +263,14 @@ fun MainShellScreen(
         }
     }
 
-    // Modal thermal receipt preview overlay
     val showReceipt by billingViewModel.showReceiptPreview
     val receiptText by billingViewModel.lastPrintedReceipt
     val isPreparing by billingViewModel.isPreparingOrder
 
     if (isPreparing) {
         Dialog(onDismissRequest = {}) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                modifier = Modifier.size(200.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Column(modifier = Modifier.size(200.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                     CircularProgressIndicator(color = OrangePrimary)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("PRINTING...", color = Color.White, fontWeight = FontWeight.Bold)
@@ -240,13 +282,13 @@ fun MainShellScreen(
     if (showReceipt && receiptText != null) {
         ThermalReceiptDialog(
             receiptText = receiptText!!,
-            currency = currentProfile?.currency ?: "₹",
+            currency = currentProfile?.currency ?: "Rs.",
             onDismiss = { billingViewModel.showReceiptPreview.value = false }
         )
     }
 }
 
-// --- 1. LOGIN / SPLASH SCREEN ---
+// --- LOGIN SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
@@ -256,7 +298,6 @@ fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
     val userRole by viewModel.userRole.collectAsState()
     val context = LocalContext.current
 
-    // Google Sign-In setup
     val gso = remember {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(context.getString(R.string.default_web_client_id))
@@ -272,7 +313,7 @@ fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
             val credential = GoogleAuthProvider.getCredential(account.idToken!!, null)
             viewModel.signInWithGoogle(credential) { }
         } catch (e: Exception) {
-            viewModel.authError.value = "Google Sign-In failed: ${e.message}"
+            viewModel.authError.value = "Google Sign-In failed: " + e.message
         }
     }
 
@@ -287,11 +328,6 @@ fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(color = OrangePrimary, radius = 200.dp.toPx(), center = Offset(size.width, 0f), alpha = 0.1f)
-            drawCircle(color = OrangePrimary, radius = 300.dp.toPx(), center = Offset(0f, size.height), alpha = 0.05f)
-        }
-
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -300,47 +336,42 @@ fun LoginScreen(navController: NavController, viewModel: AuthViewModel) {
             Image(
                 painter = painterResource(id = R.drawable.img_zaddy_logo),
                 contentDescription = "Logo",
-                modifier = Modifier.size(120.dp).clip(RoundedCornerShape(28.dp)).border(2.dp, OrangePrimary, RoundedCornerShape(28.dp))
+                modifier = Modifier.size(100.dp).clip(RoundedCornerShape(24.dp))
             )
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("OPTIX BILLING", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Spacer(modifier = Modifier.height(32.dp))
+
+            val isStaffMode by viewModel.isStaffMode
+            Row(modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SurfaceDark).padding(4.dp)) {
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (!isStaffMode) OrangePrimary else Color.Transparent).clickable { if (isStaffMode) viewModel.toggleMode() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Text("ADMIN", color = if (!isStaffMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
+                }
+                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(if (isStaffMode) OrangePrimary else Color.Transparent).clickable { if (!isStaffMode) viewModel.toggleMode() }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    Text("STAFF", color = if (isStaffMode) Color.Black else Color.Gray, fontWeight = FontWeight.Bold)
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("OPTIX BILLING", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 4.sp)
-            Text("Smart. Cloud. Fast.", fontSize = 16.sp, color = Color.Gray)
-
-            Spacer(modifier = Modifier.height(48.dp))
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                LoginCard(
-                    title = if (viewModel.isSignUpMode.value) "Register Admin" else "Admin Login",
-                    fields = listOf(
+            if (isStaffMode) {
+                LoginCard("Staff Login", listOf(
+                    LoginField("Username", viewModel.staffUsername, Icons.Default.Person),
+                    LoginField("Password", viewModel.staffPassword, Icons.Default.Lock, true)
+                ), authError, isVerifying, { viewModel.loginStaff { } }, "Login as Staff")
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    LoginCard(if (viewModel.isSignUpMode.value) "Register Admin" else "Admin Login", listOf(
                         LoginField("Email", viewModel.email, Icons.Default.Email),
-                        LoginField("Password", viewModel.password, Icons.Default.Lock, isPassword = true)
-                    ),
-                    error = authError,
-                    isLoading = isVerifying,
-                    onAction = { viewModel.authenticate { } },
-                    actionLabel = if (viewModel.isSignUpMode.value) "Create Account" else "Login"
-                )
-                
-                TextButton(onClick = { viewModel.toggleSignUpMode() }) {
-                    Text(if (viewModel.isSignUpMode.value) "Have an account? Login" else "New Admin? Register", color = OrangePrimary)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("OR", color = Color.DarkGray, fontSize = 12.sp)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = { launcher.launch(googleSignInClient.signInIntent) },
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp).height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, Color.LightGray)
-                ) {
-                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Continue with Google", color = Color.DarkGray, fontWeight = FontWeight.Bold)
+                        LoginField("Password", viewModel.password, Icons.Default.Lock, true)
+                    ), authError, isVerifying, { viewModel.authenticate { } }, if (viewModel.isSignUpMode.value) "Create Account" else "Login")
+                    
+                    TextButton(onClick = { viewModel.toggleSignUpMode() }) {
+                        Text(if (viewModel.isSignUpMode.value) "Have an account? Login" else "New Admin? Register", color = OrangePrimary)
+                    }
+                    Button(onClick = { launcher.launch(googleSignInClient.signInIntent) }, modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp).height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White)) {
+                        Text("Continue with Google", color = Color.Black)
+                    }
                 }
             }
         }
@@ -351,12 +382,7 @@ data class LoginField(val label: String, val state: MutableState<String>, val ic
 
 @Composable
 fun LoginCard(title: String, fields: List<LoginField>, error: String?, isLoading: Boolean, onAction: () -> Unit, actionLabel: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().widthIn(max = 400.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
         Column(modifier = Modifier.padding(24.dp)) {
             Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.height(20.dp))
@@ -369,86 +395,44 @@ fun LoginCard(title: String, fields: List<LoginField>, error: String?, isLoading
                     visualTransformation = if (field.isPassword) PasswordVisualTransformation() else VisualTransformation.None,
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = OrangePrimary,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                        focusedLabelColor = OrangePrimary
-                    )
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            if (error != null) {
-                Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(vertical = 4.dp))
-            }
+            if (error != null) Text(error, color = Color.Red, fontSize = 12.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onAction,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
-            ) {
+            Button(onClick = onAction, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)) {
                 if (isLoading) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
-                else Text(actionLabel, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                else Text(actionLabel, fontWeight = FontWeight.Bold, color = Color.Black)
             }
         }
     }
 }
 
-// --- 2. BUSINESS SETUP SCREEN ---
-@OptIn(ExperimentalMaterial3Api::class)
+// --- BUSINESS SETUP SCREEN ---
 @Composable
 fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupViewModel) {
     val profile by viewModel.profile.collectAsState()
     val setupError by viewModel.setupError
 
     LaunchedEffect(profile) {
-        if (profile != null && profile?.setupCompleted == true) {
+        if (profile?.setupCompleted == true) {
             navController.navigate("main") { popUpTo("business_setup") { inclusive = true } }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("Welcome to Optix", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-            Text("Complete your business profile to start billing.", fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(32.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 500.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-            ) {
-            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                OutlinedTextField(
-                    value = viewModel.businessName.value, 
-                    onValueChange = { viewModel.businessName.value = it }, 
-                    label = { Text("Business Name") }, 
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+            Card(modifier = Modifier.fillMaxWidth().widthIn(max = 500.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(value = viewModel.businessName.value, onValueChange = { viewModel.businessName.value = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = viewModel.address.value, onValueChange = { viewModel.address.value = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = viewModel.phone.value, onValueChange = { viewModel.phone.value = it }, label = { Text("Phone") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = viewModel.gstNumber.value, onValueChange = { viewModel.gstNumber.value = it }, label = { Text("GST (Optional)") }, modifier = Modifier.fillMaxWidth())
-                    
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Currency:", color = Color.White, modifier = Modifier.weight(1f))
-                        listOf("₹", "$", "€").forEach { curr ->
-                            FilterChip(
-                                selected = viewModel.selectedCurrency.value == curr,
-                                onClick = { viewModel.selectedCurrency.value = curr },
-                                label = { Text(curr) },
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        }
-                    }
-
-                    if (setupError != null) Text(setupError!!, color = Color.Red, fontSize = 12.sp)
+                    if (setupError != null) Text(setupError!!, color = Color.Red)
                     Button(onClick = { viewModel.saveBusinessProfile { } }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)) {
-                        Text("Launch POS 🚀", fontWeight = FontWeight.Bold, color = Color.Black)
+                        Text("Launch POS \uD83D\uDE80", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
                 }
             }
@@ -456,129 +440,76 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
     }
 }
 
-// --- 3. BILLING SCREEN (FRICTIONLESS) ---
+// --- BILLING SCREEN ---
 @Composable
-fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRole: String = "admin") {
+fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRole: String) {
     val items by viewModel.items.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val cart by viewModel.cart.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
-    val context = LocalContext.current
+    val isLimitReached by viewModel.isLimitReached.collectAsState()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    if (isLandscape) {
-        Row(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-            // LEFT: MENU
-            Column(modifier = Modifier.weight(0.6f).fillMaxHeight().padding(8.dp)) {
-                BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isLandscape) {
+            Row(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+                Column(modifier = Modifier.weight(0.6f).fillMaxHeight().padding(8.dp)) {
+                    BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
+                }
+                Column(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                    BillingCartSection(viewModel, profile)
+                }
             }
-            // RIGHT: CART
-            Column(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
-                BillingCartSection(viewModel, profile)
+        } else {
+            Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+                Column(modifier = Modifier.weight(0.55f).padding(8.dp)) {
+                    BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
+                }
+                Box(modifier = Modifier.weight(0.45f).fillMaxWidth()) {
+                    BillingCartSection(viewModel, profile)
+                }
             }
         }
-    } else {
-        Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
-            // TOP: MENU
-            Column(modifier = Modifier.weight(0.55f).padding(8.dp)) {
-                BillingMenuSection(viewModel, profile, items, categories, selectedCategory, searchQuery)
-            }
-            // BOTTOM: CART (Fixed size but content scrollable)
-            Box(modifier = Modifier.weight(0.45f).fillMaxWidth()) {
-                BillingCartSection(viewModel, profile)
-            }
+
+        if (isLimitReached) {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Limit Reached") },
+                text = { Text("You have reached today's free billing limit. Upgrade to Premium for unlimited billing.") },
+                confirmButton = {
+                    Button(onClick = { /* Navigate to subscription if possible */ }) {
+                        Text("Upgrade Now")
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-fun BillingMenuSection(
-    viewModel: BillingViewModel,
-    profile: BusinessProfile?,
-    items: List<BillingItem>,
-    categories: List<Category>,
-    selectedCategory: String,
-    searchQuery: String
-) {
-    // Header & Search
+fun BillingMenuSection(viewModel: BillingViewModel, profile: BusinessProfile?, items: List<BillingItem>, categories: List<Category>, selectedCategory: String, searchQuery: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(profile?.name?.uppercase() ?: "STORE", fontSize = 16.sp, fontWeight = FontWeight.Black, color = OrangePrimary)
-            Text("TOKEN #${viewModel.currentTokenNum.value}", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+            Text(profile?.name ?: "STORE", fontWeight = FontWeight.Bold, color = OrangePrimary)
+            Text("TOKEN #" + viewModel.currentTokenNum.value, fontSize = 12.sp, color = Color.Gray)
         }
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
-            placeholder = { Text("Search...", fontSize = 12.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary, modifier = Modifier.size(18.dp)) },
-            shape = RoundedCornerShape(30.dp),
-            modifier = Modifier.width(160.dp).height(54.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = OrangePrimary,
-                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                focusedContainerColor = Color.White.copy(alpha = 0.05f),
-                unfocusedContainerColor = Color.White.copy(alpha = 0.05f)
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-            singleLine = true
-        )
+        OutlinedTextField(value = searchQuery, onValueChange = { viewModel.setSearchQuery(it) }, placeholder = { Text("Search...") }, modifier = Modifier.width(150.dp).height(50.dp), shape = RoundedCornerShape(25.dp))
     }
-
     Spacer(modifier = Modifier.height(8.dp))
-
-    // Categories Row
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            FilterChip(
-                selected = selectedCategory == "All",
-                onClick = { viewModel.setCategory("All") },
-                label = { Text("All", fontSize = 11.sp) },
-                shape = RoundedCornerShape(10.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = OrangePrimary,
-                    selectedLabelColor = Color.Black,
-                    containerColor = SurfaceDark,
-                    labelColor = Color.Gray
-                ),
-                border = null,
-                modifier = Modifier.height(32.dp)
-            )
+            FilterChip(selected = selectedCategory == "All", onClick = { viewModel.setCategory("All") }, label = { Text("All") })
         }
         items(categories) { cat ->
-            FilterChip(
-                selected = selectedCategory == cat.name,
-                onClick = { viewModel.setCategory(cat.name) },
-                label = { Text(cat.name, fontSize = 11.sp) },
-                shape = RoundedCornerShape(10.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = OrangePrimary,
-                    selectedLabelColor = Color.Black,
-                    containerColor = SurfaceDark,
-                    labelColor = Color.Gray
-                ),
-                border = null,
-                modifier = Modifier.height(32.dp)
-            )
+            FilterChip(selected = selectedCategory == cat.name, onClick = { viewModel.setCategory(cat.name) }, label = { Text(cat.name) })
         }
     }
-
     Spacer(modifier = Modifier.height(8.dp))
-
-    // Items Grid
-    val filteredItems = items.filter { it.isAvailable && (selectedCategory == "All" || it.categoryName == selectedCategory) && it.name.contains(searchQuery, ignoreCase = true) }
-    
-    val configuration = LocalConfiguration.current
-    val columns = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 4 else 3
-
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        items(filteredItems) { item ->
+    val filtered = items.filter { !it.isOutOfStock && it.isAvailable && (selectedCategory == "All" || it.categoryId == categories.find { it.name == selectedCategory }?.id) && it.name.contains(searchQuery, true) }
+    LazyVerticalGrid(columns = GridCells.Fixed(3), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(filtered) { item ->
             ItemCard(item, viewModel, profile)
         }
     }
@@ -588,62 +519,11 @@ fun BillingMenuSection(
 fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessProfile?) {
     val cart by viewModel.cart.collectAsState()
     val qty = cart[item.id] ?: 0
-    val scope = rememberCoroutineScope()
-    val scale = remember { Animatable(1f) }
-    
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(130.dp)
-            .graphicsLayer(scaleX = scale.value, scaleY = scale.value)
-            .clickable {
-                scope.launch {
-                    scale.animateTo(0.95f, animationSpec = tween(100))
-                    scale.animateTo(1f, animationSpec = tween(100))
-                }
-                viewModel.addToCart(item)
-            },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = if (qty > 0) BorderStroke(1.5.dp, OrangePrimary) else null
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().height(100.dp).clickable { viewModel.addToCart(item) }, colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
         Column(modifier = Modifier.padding(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.05f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (false && !item.imageUrl.isNullOrEmpty()) { // Disabled images
-                    AsyncImage(
-                        model = item.imageUrl,
-                        contentDescription = item.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(Icons.Default.Fastfood, null, tint = OrangePrimary.copy(alpha = 0.2f), modifier = Modifier.size(32.dp))
-                }
-                
-                if (qty > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(OrangePrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("$qty", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-            Text("${profile?.currency ?: "₹"}${item.price.toInt()}", fontSize = 12.sp, color = OrangePrimary, fontWeight = FontWeight.ExtraBold)
+            Text(item.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+            Text((profile?.currency ?: "Rs.") + item.price.toInt().toString(), color = OrangePrimary)
+            if (qty > 0) Text(qty.toString() + " in cart", fontSize = 10.sp, color = Color.Green)
         }
     }
 }
@@ -654,39 +534,30 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
     val cart by viewModel.cart.collectAsState()
     val subtotal by viewModel.cartSubtotal.collectAsState()
     val discount = viewModel.discount
-    val grandTotal = (subtotal - discount).coerceAtLeast(0.0)
+    val total = (subtotal - discount).coerceAtLeast(0.0)
     val allItems by viewModel.items.collectAsState()
-    
+
     Card(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 0.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Black),
-        border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.3f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.2f))
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 12.dp)) {
-            // Cart Header (Fixed)
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ShoppingCart, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.ShoppingCart, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("CURRENT BILL", fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 1.sp, fontSize = 14.sp)
+                Text("CURRENT BILL", fontWeight = FontWeight.Black, color = Color.White, fontSize = 14.sp)
                 Spacer(modifier = Modifier.weight(1f))
                 if (cart.isNotEmpty()) {
-                    Surface(color = OrangePrimary.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)) {
-                        Text("${cart.values.sum()} ITEMS", color = OrangePrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-                    }
+                    Text("${cart.values.sum()} ITEMS", color = OrangePrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
             
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
-            // Everything else except Buttons is scrollable
             Box(modifier = Modifier.weight(1f)) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Cart Items
+                LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (cart.isEmpty()) {
                         item {
                             Box(modifier = Modifier.fillParentMaxHeight(0.5f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -694,303 +565,124 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
                             }
                         }
                     } else {
-                        items(cart.entries.toList(), key = { it.key }) { (itemId, qty) ->
-                            val item = allItems.find { it.id == itemId } ?: return@items
-                            CartItemRow(item, qty, viewModel, profile)
-                        }
-                    }
-
-                    // Totals Section (Now inside Scrollable)
-                    if (cart.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.padding(top = 16.dp)) {
-                                Divider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Subtotal", color = Color.Gray, fontSize = 12.sp)
-                                    Text("${profile?.currency ?: "₹"}${subtotal.toInt()}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        items(cart.entries.toList(), key = { it.key }) { (id, qty) ->
+                            val item = allItems.find { it.id == id } ?: return@items
+                            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                                    Text((profile?.currency ?: "Rs.") + item.price.toInt().toString(), color = OrangePrimary, fontSize = 11.sp)
                                 }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Discount", color = Color.Gray, fontSize = 12.sp)
-                                    Text("- ${profile?.currency ?: "₹"}${discount.toInt()}", color = OrangePrimary, fontSize = 12.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { viewModel.removeFromCart(item) }, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                                    Text(qty.toString(), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
+                                    IconButton(onClick = { viewModel.addToCart(item) }, modifier = Modifier.size(30.dp)) { Icon(Icons.Default.Add, null, tint = OrangePrimary, modifier = Modifier.size(16.dp)) }
                                 }
-                                
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
-                                    val pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                                    drawLine(color = Color.Gray.copy(alpha = 0.2f), start = Offset(0f, 0.5f), end = Offset(size.width, 0.5f), pathEffect = pathEffect, strokeWidth = 1.dp.toPx())
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("TOTAL", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                                    Text("${profile?.currency ?: "₹"}${grandTotal.toInt()}", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 24.sp)
-                                }
-                                
-                                Spacer(modifier = Modifier.height(16.dp))
-                                PaymentMethodSelector(viewModel)
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Text((profile?.currency ?: "Rs.") + (item.price * qty).toInt().toString(), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 45.dp), textAlign = TextAlign.End)
                             }
                         }
                     }
                 }
             }
 
-            // Fixed Buttons at the very bottom
-            Spacer(modifier = Modifier.height(12.dp))
-            FixedActionButtons(viewModel, profile, cart.isNotEmpty(), context)
-        }
-    }
-}
-
-@Composable
-fun CartItemRow(item: BillingItem, qty: Int, viewModel: BillingViewModel, profile: BusinessProfile?) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Item Icon (Fixed Size)
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.05f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Coffee, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
-        }
-        
-        Spacer(modifier = Modifier.width(10.dp))
-        
-        // Name and Unit Price (Flexible)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${profile?.currency ?: "₹"}${item.price.toInt()}", fontSize = 11.sp, color = OrangePrimary)
-        }
-        
-        // Quantity Controls (No Overlap)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        ) {
-            Surface(
-                onClick = { viewModel.removeFromCart(item) },
-                modifier = Modifier.size(28.dp),
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.1f)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size(14.dp))
-                }
+            Divider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("GRAND TOTAL", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text((profile?.currency ?: "Rs.") + total.toInt().toString(), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 26.sp)
             }
             
-            Text(
-                text = "$qty",
-                fontWeight = FontWeight.Black,
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 10.dp),
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center
-            )
+            Spacer(modifier = Modifier.height(16.dp))
             
-            Surface(
-                onClick = { viewModel.addToCart(item) },
-                modifier = Modifier.size(28.dp),
-                shape = CircleShape,
-                color = OrangePrimary
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(14.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { viewModel.clearCart() },
+                    modifier = Modifier.weight(0.8f).height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f), contentColor = Color.Red),
+                    border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
+                ) {
+                    Text("CLEAR", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
-            }
-        }
-        
-        Spacer(modifier = Modifier.width(8.dp))
-        
-        // Total Price for this item
-        Text(
-            text = "${profile?.currency ?: "₹"}${(item.price * qty).toInt()}",
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            fontSize = 13.sp,
-            modifier = Modifier.widthIn(min = 40.dp),
-            textAlign = TextAlign.End
-        )
-        
-        Spacer(modifier = Modifier.width(4.dp))
-        
-        // Delete Button
-        IconButton(
-            onClick = { viewModel.clearItemFromCart(item) },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(Icons.Default.Delete, null, tint = Color.DarkGray, modifier = Modifier.size(16.dp))
-        }
-    }
-}
 
-@Composable
-fun PaymentMethodSelector(viewModel: BillingViewModel) {
-    val paymentMethod by viewModel.paymentMethod
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("Cash", "UPI", "Card").forEach { method ->
-            val selected = paymentMethod == method
-            Surface(
-                modifier = Modifier.weight(1f).height(40.dp).clickable { viewModel.paymentMethod.value = method },
-                shape = RoundedCornerShape(10.dp),
-                color = if (selected) OrangePrimary.copy(alpha = 0.1f) else Color.Transparent,
-                border = BorderStroke(1.dp, if (selected) OrangePrimary else Color.White.copy(alpha = 0.1f))
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    RadioButton(selected = selected, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = OrangePrimary, unselectedColor = Color.Gray), modifier = Modifier.scale(0.8f))
-                    Text(method, color = if (selected) OrangePrimary else Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = { 
+                        val cashier = OptixApplication.instance.authManager.staffName.value ?: "Admin"
+                        viewModel.saveBillOnly(context, profile ?: return@Button, cashier) { 
+                            Toast.makeText(context, "SAVED", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(0.8f).height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White),
+                    enabled = cart.isNotEmpty()
+                ) {
+                    Text("SAVE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+                
+                Button(
+                    onClick = { 
+                        val cashier = OptixApplication.instance.authManager.staffName.value ?: "Admin"
+                        viewModel.saveAndPrintBill(context, profile ?: return@Button, cashier) { 
+                            Toast.makeText(context, "PRINTED", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1.4f).height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black),
+                    enabled = cart.isNotEmpty()
+                ) {
+                    Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("PRINT BILL", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                 }
             }
         }
     }
 }
 
+// --- HISTORY SCREEN ---
 @Composable
-fun FixedActionButtons(viewModel: BillingViewModel, profile: BusinessProfile?, hasItems: Boolean, context: Context) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = { viewModel.clearCart() },
-            modifier = Modifier.weight(1f).height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
-        ) {
-            Text("CLEAR", fontWeight = FontWeight.Black, color = Color.White, fontSize = 12.sp)
-        }
-        Button(
-            onClick = {
-                val staffName = OptixApplication.instance.authManager.staffName.value ?: "Admin"
-                viewModel.saveAndPrintBill(context, profile ?: return@Button, staffName) { 
-                    Toast.makeText(context, "ORDER PLACED", Toast.LENGTH_SHORT).show()
-                }
-            },
-            modifier = Modifier.weight(2f).height(48.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-            enabled = hasItems
-        ) {
-            Icon(Icons.Default.Print, null, tint = Color.Black, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("PRINT", fontWeight = FontWeight.ExtraBold, color = Color.Black, fontSize = 14.sp)
-        }
-    }
-}
-
-// --- 4. HISTORY SCREEN ---
-@Composable
-fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, userRole: String = "admin") {
+fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, userRole: String) {
     val orders by viewModel.filteredOrders.collectAsState()
-    val searchTokenQuery by viewModel.searchTokenQuery.collectAsState()
-    val timeFilter by viewModel.timeFilter.collectAsState()
+    val filter by viewModel.timeFilter.collectAsState()
     val previewText by viewModel.viewReceiptText.collectAsState()
 
     if (previewText != null) {
         ThermalReceiptDialog(
             receiptText = previewText!!,
-            currency = profile?.currency ?: "₹",
+            currency = profile?.currency ?: "Rs.",
             onDismiss = { viewModel.hideReceiptPreview() }
         )
     }
-
+    
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("ORDER HISTORY", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp, modifier = Modifier.weight(1f))
-            
-            Row(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark).padding(4.dp)) {
-                listOf("Today", "Weekly", "All").forEach { tf ->
-                    val selected = timeFilter == tf
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) OrangePrimary else Color.Transparent)
-                            .clickable { viewModel.setTimeFilter(tf) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(tf, color = if (selected) Color.Black else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+        Text("ORDER HISTORY", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
+        Row(modifier = Modifier.padding(vertical = 12.dp)) {
+            listOf("Today", "Weekly", "All").forEach { tf ->
+                FilterChip(
+                    selected = filter == tf,
+                    onClick = { viewModel.setTimeFilter(tf) },
+                    label = { Text(tf) },
+                    modifier = Modifier.padding(end = 8.dp),
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
+                )
             }
         }
-        
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = searchTokenQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
-            placeholder = { Text("Search by token or item...", color = Color.Gray) },
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape = RoundedCornerShape(16.dp),
-            leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary) },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = OrangePrimary,
-                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                unfocusedContainerColor = SurfaceDark,
-                focusedContainerColor = SurfaceDark
-            )
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(orders) { order ->
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(OrangePrimary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                                    Text("#${order.tokenNumber.takeLast(2)}", color = OrangePrimary, fontWeight = FontWeight.Black)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Token #${order.tokenNumber}", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
-                                    val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                                    Text(sdf.format(Date(order.timestamp)), color = Color.Gray, fontSize = 12.sp)
-                                }
-                            }
-                            Text("${profile?.currency ?: "₹"}${order.total.toInt()}", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 20.sp)
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Token #" + order.tokenNumber, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                            Text(order.paymentMethod + " \u2022 " + order.cashierName, fontSize = 12.sp, color = Color.Gray)
                         }
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Divider(color = Color.White.copy(alpha = 0.05f))
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Payment, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(order.paymentMethod, color = Color.Gray, fontSize = 13.sp)
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Person, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(order.cashierName, color = Color.Gray, fontSize = 13.sp)
-                            }
-                            
-                            Row {
-                                IconButton(onClick = { viewModel.showReceiptPreview(order, profile ?: return@IconButton) }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Visibility, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                IconButton(onClick = { viewModel.reprintOrder(order, profile ?: return@IconButton) }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.Print, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
-                                }
-                                if (userRole == "admin") {
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    IconButton(onClick = { viewModel.deleteOrder(order) }, modifier = Modifier.size(24.dp)) {
-                                        Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
-                                    }
-                                }
-                            }
+                        Text((profile?.currency ?: "Rs.") + order.total.toInt().toString(), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        IconButton(onClick = { viewModel.showReceiptPreview(order, profile ?: return@IconButton) }) {
+                            Icon(Icons.Default.Visibility, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { viewModel.reprintOrder(order, profile ?: return@IconButton) }) {
+                            Icon(Icons.Default.Print, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -999,160 +691,109 @@ fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, u
     }
 }
 
-// --- 5. ITEMS SCREEN ---
+// --- ITEMS SCREEN (REDESIGNED) ---
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ItemsScreen(viewModel: ItemsViewModel) {
+fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
     val items by viewModel.items.collectAsState()
     val categories by viewModel.categories.collectAsState()
-    var showAddDialog by remember { mutableStateOf(false) }
+    val searchQuery by viewModel.searchItemQuery
+    val selectedFilter by viewModel.selectedCategoryFilter
+    
+    var showAddItemDialog by remember { mutableStateOf(false) }
     var selectedItemForEdit by remember { mutableStateOf<BillingItem?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var filterCategory by remember { mutableStateOf("All") }
+    var showLongPressMenu by remember { mutableStateOf<BillingItem?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("MANAGE MENU", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp, modifier = Modifier.weight(1f))
-            Button(
-                onClick = { 
-                    viewModel.clearForm()
-                    selectedItemForEdit = null
-                    showAddDialog = true 
-                }, 
-                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.Add, null, tint = Color.Black)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("ADD ITEM", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("MENU", fontWeight = FontWeight.Black, color = Color.White, fontSize = 32.sp, modifier = Modifier.weight(1f))
+            IconButton(onClick = { navController.navigate("manage_categories") }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
+                Icon(Icons.Default.Category, null, tint = OrangePrimary)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = { viewModel.clearForm(); selectedItemForEdit = null; showAddItemDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Default.Add, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("ADD ITEM", fontWeight = FontWeight.Bold)
             }
         }
         
         Spacer(modifier = Modifier.height(20.dp))
-
-        // Search & Category Management
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search items...", color = Color.Gray) },
-                modifier = Modifier.weight(1f).height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = OrangePrimary) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = OrangePrimary,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                    unfocusedContainerColor = SurfaceDark,
-                    focusedContainerColor = SurfaceDark
-                )
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            var showAddCat by remember { mutableStateOf(false) }
-            IconButton(
-                onClick = { showAddCat = true },
-                modifier = Modifier.background(SurfaceDark, RoundedCornerShape(12.dp)).size(50.dp)
-            ) {
-                Icon(Icons.Default.Category, null, tint = OrangePrimary)
-            }
-
-            if (showAddCat) {
-                AlertDialog(
-                    onDismissRequest = { showAddCat = false },
-                    containerColor = SurfaceDark,
-                    title = { Text("Add Category", color = Color.White) },
-                    text = {
-                        OutlinedTextField(
-                            value = viewModel.customCategoryName.value,
-                            onValueChange = { viewModel.customCategoryName.value = it },
-                            label = { Text("Category Name") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    },
-                    confirmButton = {
-                        Button(onClick = { viewModel.addCustomCategory(); showAddCat = false }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)) {
-                            Text("ADD", color = Color.Black)
-                        }
-                    }
-                )
-            }
-        }
-
+        
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { viewModel.searchItemQuery.value = it },
+            placeholder = { Text("Search menu items...") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
+            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color.White.copy(alpha = 0.1f), focusedBorderColor = OrangePrimary)
+        )
+        
         Spacer(modifier = Modifier.height(16.dp))
-
+        
+        // Category Filter Chips
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 FilterChip(
-                    selected = filterCategory == "All",
-                    onClick = { filterCategory = "All" },
+                    selected = selectedFilter == "All",
+                    onClick = { viewModel.selectedCategoryFilter.value = "All" },
                     label = { Text("All") },
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
                 )
             }
             items(categories) { cat ->
                 FilterChip(
-                    selected = filterCategory == cat.name,
-                    onClick = { filterCategory = cat.name },
+                    selected = selectedFilter == cat.name,
+                    onClick = { viewModel.selectedCategoryFilter.value = cat.name },
                     label = { Text(cat.name) },
                     colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
                 )
             }
         }
-
+        
         Spacer(modifier = Modifier.height(16.dp))
-
-        val filteredList = items.filter { 
-            (filterCategory == "All" || it.categoryName == filterCategory) &&
+        
+        val filteredItems = items.filter { 
+            (selectedFilter == "All" || it.categoryId == categories.find { c -> c.name == selectedFilter }?.id) &&
             it.name.contains(searchQuery, ignoreCase = true)
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(filteredList) { item ->
-                Card(
-                    shape = RoundedCornerShape(20.dp), 
-                    colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.05f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(item.name.take(1).uppercase(), color = OrangePrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        }
-                        
-                        Spacer(modifier = Modifier.width(16.dp))
-                        
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
-                            Text(item.categoryName, fontSize = 12.sp, color = Color.Gray)
-                            Text("Rs.${item.price.toInt()}", fontSize = 14.sp, color = OrangePrimary, fontWeight = FontWeight.Black)
-                        }
-                        
-                        Column(horizontalAlignment = Alignment.End) {
-                            Switch(
-                                checked = item.isAvailable, 
-                                onCheckedChange = { viewModel.toggleAvailability(item) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = OrangePrimary,
-                                    checkedTrackColor = OrangePrimary.copy(alpha = 0.3f),
-                                    uncheckedThumbColor = Color.White,
-                                    uncheckedTrackColor = Color.Gray.copy(alpha = 0.3f)
-                                )
-                            )
-                            Row {
-                                IconButton(onClick = { 
-                                    viewModel.fillForm(item)
-                                    selectedItemForEdit = item
-                                    showAddDialog = true
-                                }) { 
-                                    Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(20.dp)) 
-                                }
-                                IconButton(onClick = { viewModel.deleteItem(item) }) { 
-                                    Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.4f), modifier = Modifier.size(20.dp)) 
-                                }
+        if (filteredItems.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("No items found", color = Color.Gray)
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(160.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                items(filteredItems) { item ->
+                    PremiumCard(
+                        onClick = { viewModel.fillForm(item); selectedItemForEdit = item; showAddItemDialog = true },
+                        onLongClick = { showLongPressMenu = item },
+                        modifier = Modifier.alpha(if (item.isOutOfStock) 0.5f else 1.0f)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.05f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(item.name.take(1).uppercase(), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(item.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(item.categoryName, color = Color.Gray, fontSize = 12.sp)
+                            Text("Rs.${item.price.toInt()}", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            
+                            if (item.isOutOfStock) {
+                                Text("OUT OF STOCK", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1160,488 +801,1105 @@ fun ItemsScreen(viewModel: ItemsViewModel) {
             }
         }
     }
-
-    if (showAddDialog) {
+    
+    if (showAddItemDialog) {
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
+            onDismissRequest = { showAddItemDialog = false },
             containerColor = SurfaceDark,
-            title = { Text(if (selectedItemForEdit == null) "Add Item" else "Edit Item", color = Color.White) },
+            title = { Text(if (selectedItemForEdit == null) "Add Menu Item" else "Edit Item", color = Color.White) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = viewModel.itemName.value, 
-                        onValueChange = { viewModel.itemName.value = it }, 
-                        label = { Text("Item Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    OutlinedTextField(
-                        value = viewModel.itemPrice.value, 
-                        onValueChange = { viewModel.itemPrice.value = it }, 
-                        label = { Text("Price") }, 
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = viewModel.itemName.value, onValueChange = { viewModel.itemName.value = it }, label = { Text("Item Name") })
+                    OutlinedTextField(value = viewModel.itemPrice.value, onValueChange = { viewModel.itemPrice.value = it }, label = { Text("Price") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     
                     var expanded by remember { mutableStateOf(false) }
                     Box {
                         OutlinedTextField(
-                            value = viewModel.itemCategory.value, 
-                            onValueChange = {}, 
-                            label = { Text("Category") }, 
-                            readOnly = true, 
+                            value = viewModel.itemCategoryName.value,
+                            onValueChange = { },
+                            label = { Text("Category") },
+                            readOnly = true,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
                             trailingIcon = { IconButton(onClick = { expanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
                         )
                         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                             categories.forEach { cat ->
-                                DropdownMenuItem(text = { Text(cat.name) }, onClick = { viewModel.itemCategory.value = cat.name; expanded = false })
+                                DropdownMenuItem(text = { Text(cat.name) }, onClick = { 
+                                    viewModel.itemCategoryId.value = cat.id
+                                    viewModel.itemCategoryName.value = cat.name
+                                    expanded = false 
+                                })
                             }
                         }
                     }
                 }
             },
-            confirmButton = { 
-                Button(
-                    onClick = { viewModel.saveItem(selectedItemForEdit) { showAddDialog = false } },
-                    enabled = !viewModel.isSaving.value,
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
-                ) { 
-                    if (viewModel.isSaving.value) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.Black)
-                    } else {
-                        Text("SAVE ITEM", color = Color.Black, fontWeight = FontWeight.Bold) 
-                    }
-                } 
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
-                    Text("CANCEL", color = Color.Gray)
+            confirmButton = {
+                Button(onClick = { viewModel.saveItem(selectedItemForEdit) { showAddItemDialog = false } }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                    Text("SAVE", fontWeight = FontWeight.Bold)
                 }
             }
         )
     }
+
+    if (showLongPressMenu != null) {
+        val item = showLongPressMenu!!
+        AlertDialog(
+            onDismissRequest = { showLongPressMenu = null },
+            containerColor = SurfaceDark,
+            title = { Text(item.name, color = Color.White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { 
+                        viewModel.fillForm(item)
+                        selectedItemForEdit = item
+                        showAddItemDialog = true
+                        showLongPressMenu = null
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Edit Item", color = Color.White)
+                    }
+                    TextButton(onClick = { 
+                        viewModel.duplicateItem(item)
+                        showLongPressMenu = null
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Duplicate Item", color = Color.White)
+                    }
+                    TextButton(onClick = { 
+                        viewModel.toggleStockStatus(item)
+                        showLongPressMenu = null
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (item.isOutOfStock) "Mark In Stock" else "Mark Out Of Stock", color = if (item.isOutOfStock) Color.Green else Color.Yellow)
+                    }
+                    TextButton(onClick = { 
+                        viewModel.deleteItem(item)
+                        showLongPressMenu = null
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Delete Item", color = Color.Red)
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
 }
 
-// --- 6. ANALYTICS SCREEN ---
+// --- MANAGE CATEGORIES SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManageCategoriesScreen(navController: NavController, viewModel: ItemsViewModel) {
+    val categories by viewModel.categories.collectAsState()
+    val items by viewModel.items.collectAsState()
+    var showAddDialog by remember { mutableStateOf(false) }
+    var categoryToDelete by remember { mutableStateOf<Category?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Manage Categories") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+            )
+        },
+        containerColor = DarkBackground,
+        floatingActionButton = {
+            FloatingActionButton(onClick = { viewModel.editingCategory.value = null; viewModel.newCategoryName.value = ""; showAddDialog = true }, containerColor = OrangePrimary) {
+                Icon(Icons.Default.Add, null, tint = Color.Black)
+            }
+        }
+    ) { padding ->
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(categories) { cat ->
+                PremiumCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(cat.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { viewModel.editingCategory.value = cat; viewModel.newCategoryName.value = cat.name; showAddDialog = true }) {
+                            Icon(Icons.Default.Edit, null, tint = Color.Gray)
+                        }
+                        IconButton(onClick = { categoryToDelete = cat }) {
+                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f))
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                containerColor = SurfaceDark,
+                title = { Text(if (viewModel.editingCategory.value == null) "Add Category" else "Rename Category", color = Color.White) },
+                text = {
+                    OutlinedTextField(value = viewModel.newCategoryName.value, onValueChange = { viewModel.newCategoryName.value = it }, label = { Text("Category Name") })
+                },
+                confirmButton = {
+                    Button(onClick = { viewModel.saveCategory { showAddDialog = false } }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                        Text("SAVE", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
+
+        if (categoryToDelete != null) {
+            val cat = categoryToDelete!!
+            val itemsInCat = items.filter { it.categoryId == cat.id }
+            
+            AlertDialog(
+                onDismissRequest = { categoryToDelete = null },
+                containerColor = SurfaceDark,
+                title = { Text("Delete Category?", color = Color.White) },
+                text = {
+                    if (itemsInCat.isNotEmpty()) {
+                        Text("There are ${itemsInCat.size} items in this category. What would you like to do?", color = Color.Gray)
+                    } else {
+                        Text("Are you sure you want to delete '${cat.name}'?", color = Color.Gray)
+                    }
+                },
+                confirmButton = {
+                    Column {
+                        if (itemsInCat.isNotEmpty()) {
+                            Button(
+                                onClick = { viewModel.deleteCategory(cat); categoryToDelete = null },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Delete Category and All Items")
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            var showMoveDialog by remember { mutableStateOf(false) }
+                            Button(
+                                onClick = { showMoveDialog = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Move Items and Delete Category")
+                            }
+
+                            if (showMoveDialog) {
+                                Dialog(onDismissRequest = { showMoveDialog = false }) {
+                                    PremiumCard {
+                                        Text("Move items to:", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        categories.filter { it.id != cat.id }.forEach { target ->
+                                            TextButton(onClick = { 
+                                                viewModel.deleteCategory(cat, target.id)
+                                                categoryToDelete = null
+                                                showMoveDialog = false
+                                            }, modifier = Modifier.fillMaxWidth()) {
+                                                Text(target.name, color = OrangePrimary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Button(onClick = { viewModel.deleteCategory(cat); categoryToDelete = null }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { categoryToDelete = null }) { Text("Cancel", color = Color.Gray) }
+                }
+            )
+        }
+    }
+}
+
+// --- ANALYTICS SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
     val metrics by viewModel.metrics.collectAsState()
     val timeFrame by viewModel.timeFrame.collectAsState()
     val context = LocalContext.current
-    var showDownloadOptions by remember { mutableStateOf(false) }
-    
+    var showDatePicker by remember { mutableStateOf(false) }
+    val summaryPreview by viewModel.summaryPreviewText.collectAsState()
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { viewModel.setSelectedDate(it) }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("CANCEL") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (summaryPreview != null) {
+        ThermalReceiptDialog(
+            receiptText = summaryPreview!!,
+            currency = profile?.currency ?: "Rs.",
+            onDismiss = { viewModel.hideSummaryPreview() },
+            onPrint = { profile?.let { viewModel.printCurrentSummary(it) } }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("ANALYTICS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
-                Text("Insights for your business", color = Color.Gray, fontSize = 12.sp)
+                Text("BUSINESS STATS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
+                Text(timeFrame.uppercase(), color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
             
-            Box {
-                IconButton(
-                    onClick = { showDownloadOptions = true },
-                    modifier = Modifier.background(SurfaceDark, CircleShape)
-                ) {
-                    Icon(Icons.Default.Download, null, tint = OrangePrimary)
+            Row {
+                IconButton(onClick = { showDatePicker = true }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
+                    Icon(Icons.Default.CalendarToday, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
                 }
-                DropdownMenu(expanded = showDownloadOptions, onDismissRequest = { showDownloadOptions = false }) {
-                    DropdownMenuItem(text = { Text("Download PDF") }, onClick = { viewModel.downloadReport(context, "PDF"); showDownloadOptions = false })
-                    DropdownMenuItem(text = { Text("Export CSV") }, onClick = { viewModel.downloadReport(context, "CSV"); showDownloadOptions = false })
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = { profile?.let { viewModel.generateSummaryPreview(it) } }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
+                    Icon(Icons.Default.Print, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = { viewModel.downloadReport(context, "PDF") }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
+                    Icon(Icons.Default.Download, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(20.dp))
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         Row(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark).padding(4.dp)) {
             listOf("Today", "Weekly", "Monthly").forEach { tf ->
                 val selected = timeFrame == tf
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (selected) OrangePrimary else Color.Transparent)
-                        .clickable { viewModel.setTimeFrame(tf) }
-                        .padding(vertical = 10.dp),
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (selected) OrangePrimary else Color.Transparent).clickable { viewModel.setTimeFrame(tf) }.padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(tf, color = if (selected) Color.Black else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(tf, color = if (selected) Color.Black else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
-        // Key Performance Indicators
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(label = "TOTAL REVENUE", value = "Rs.${metrics.totalSales.toInt()}", modifier = Modifier.weight(1.2f), isPrimary = true)
-            StatCard(label = "ORDERS", value = "${metrics.numBills}", modifier = Modifier.weight(0.8f))
+            StatCard("TOTAL REVENUE", "Rs." + metrics.totalSales.toInt(), Modifier.weight(1.2f), true)
+            StatCard("ORDERS", metrics.numBills.toString(), Modifier.weight(0.8f))
         }
         
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(label = "AVG BILL", value = "Rs.${metrics.averageOrderValue.toInt()}", modifier = Modifier.weight(1f))
-            StatCard(label = "PEAK HOUR", value = metrics.peakHour, modifier = Modifier.weight(1f))
+            StatCard("AVG ORDER", "Rs." + metrics.averageOrderValue.toInt(), Modifier.weight(1f))
+            StatCard("TOTAL TAX", "Rs." + metrics.totalTax.toInt(), Modifier.weight(1f))
         }
 
         Spacer(modifier = Modifier.height(32.dp))
-        
-        // Sales Chart Card
-        Card(
-            shape = RoundedCornerShape(24.dp), 
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.TrendingUp, null, tint = OrangePrimary, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("SALES TREND", fontWeight = FontWeight.Black, color = Color.White, fontSize = 15.sp)
-                }
-                Spacer(modifier = Modifier.height(24.dp))
-                SalesTrendChart(metrics.chartPoints)
-            }
-        }
 
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Top Products List
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("TOP PRODUCTS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
-            TextButton(onClick = { }) {
-                Text("VIEW ALL", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        Text("TOP SELLING PRODUCTS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
         Spacer(modifier = Modifier.height(12.dp))
-        
-        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (metrics.topSellingItems.isEmpty()) {
-                    Text("No sales data yet", color = Color.Gray, modifier = Modifier.padding(20.dp).align(Alignment.CenterHorizontally))
+                    Text("No sales data for this period", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 }
                 metrics.topSellingItems.forEach { item ->
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.05f)), 
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.05f)), contentAlignment = Alignment.Center) {
                             Text(item.name.take(1).uppercase(), color = OrangePrimary, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(item.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Rs.${item.totalRevenue.toInt()}", color = Color.Gray, fontSize = 12.sp)
+                            Text("Rs." + item.totalRevenue.toInt(), color = Color.Gray, fontSize = 11.sp)
                         }
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(OrangePrimary.copy(alpha = 0.1f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text("${item.quantity} sold", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        Surface(color = OrangePrimary.copy(alpha = 0.1f), shape = CircleShape) {
+                            Text(item.quantity.toString() + " sold", color = OrangePrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                     }
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(32.dp))
-        
-        // Payment Breakdown
-        Text("PAYMENT DISTRIBUTION", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (metrics.paymentBreakdown.isEmpty()) {
-                    Text("Waiting for transactions...", color = Color.Gray, modifier = Modifier.padding(10.dp).align(Alignment.CenterHorizontally))
-                }
-                metrics.paymentBreakdown.forEach { (method, amount) ->
-                    val percentage = if (metrics.totalSales > 0) (amount / metrics.totalSales).toFloat() else 0f
-                    Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(method, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text("Rs.${amount.toInt()} (${(percentage * 100).toInt()}%)", color = Color.Gray, fontSize = 13.sp)
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(
-                            progress = percentage,
-                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                            color = OrangePrimary,
-                            trackColor = Color.White.copy(alpha = 0.05f)
-                        )
-                    }
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(60.dp))
+        Spacer(modifier = Modifier.height(80.dp))
     }
 }
 
 @Composable
-fun StatCard(label: String, value: String, modifier: Modifier, isPrimary: Boolean = false) {
-    Card(modifier = modifier, shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = if (isPrimary) OrangePrimary else SurfaceDark)) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isPrimary) Color.Black.copy(alpha = 0.6f) else Color.Gray)
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Black, color = if (isPrimary) Color.Black else Color.White)
+fun StatCard(label: String, value: String, modifier: Modifier, primary: Boolean = false) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = if (primary) OrangePrimary else SurfaceDark)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(label, fontSize = 10.sp, color = if (primary) Color.Black else Color.Gray)
+            Text(value, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = if (primary) Color.Black else Color.White)
         }
     }
 }
 
-@Composable
-fun SalesTrendChart(points: List<ChartPoint>) {
-    if (points.isEmpty()) {
-        Box(modifier = Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
-            Text("No data available", color = Color.Gray)
-        }
-        return
-    }
-    
-    val maxValue = (points.maxOfOrNull { it.value } ?: 0.0).coerceAtLeast(1.0)
-    
-    Row(
-        modifier = Modifier.fillMaxWidth().height(150.dp).padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        points.forEach { point ->
-            val ratio = (point.value / maxValue).toFloat()
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.4f)
-                        .fillMaxHeight(ratio.coerceAtLeast(0.05f))
-                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(OrangePrimary, OrangePrimary.copy(alpha = 0.3f))
-                            )
-                        )
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(point.label, fontSize = 8.sp, color = Color.Gray, maxLines = 1)
-            }
-        }
-    }
-}
-
-// --- 7. SETTINGS SCREEN ---
+// --- SETTINGS SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetupViewModel, navController: NavController, userRole: String = "admin", staffViewModel: StaffViewModel) {
-    val profile by viewModel.profile.collectAsState(initial = null)
+fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetupViewModel, navController: NavController, userRole: String, staffViewModel: StaffViewModel) {
+    val profile by viewModel.profile.collectAsState(null)
     val context = LocalContext.current
-    LaunchedEffect(profile) { profile?.let { viewModel.initProfileForm(it) } }
+    val isAdmin = userRole == "admin"
+    var showEditDialog by viewModel.showEditBusinessDialog
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("SETTINGS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 24.sp)
-        
-        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("BUSINESS PROFILE", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 16.sp)
-                
-                OutlinedTextField(
-                    value = viewModel.profileName.value,
-                    onValueChange = { viewModel.profileName.value = it },
-                    label = { Text("Business Name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Settings", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 32.sp)
+
+        if (isAdmin) {
+            // Business Card
+            PremiumCard(onClick = { viewModel.initProfileForm(profile ?: BusinessProfile()); showEditDialog = true }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .background(OrangePrimary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Store, null, tint = OrangePrimary, modifier = Modifier.size(30.dp))
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(profile?.name ?: "Business Name", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(profile?.phone ?: "Phone Number", color = Color.Gray, fontSize = 14.sp)
+                    }
+                    Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
+                }
+            }
+
+            if (showEditDialog) {
+                AlertDialog(
+                    onDismissRequest = { showEditDialog = false },
+                    containerColor = SurfaceDark,
+                    title = { Text("Edit Business Info", color = Color.White) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(value = viewModel.profileName.value, onValueChange = { viewModel.profileName.value = it }, label = { Text("Business Name") })
+                            OutlinedTextField(value = viewModel.profileAddress.value, onValueChange = { viewModel.profileAddress.value = it }, label = { Text("Address") })
+                            OutlinedTextField(value = viewModel.profilePhone.value, onValueChange = { viewModel.profilePhone.value = it }, label = { Text("Phone") })
+                            OutlinedTextField(value = viewModel.profileGst.value, onValueChange = { viewModel.profileGst.value = it }, label = { Text("GST Number") })
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = { viewModel.saveProfileSettings(); showEditDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                            Text("SAVE", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 )
-                
-                OutlinedTextField(
-                    value = viewModel.profileAddress.value,
-                    onValueChange = { viewModel.profileAddress.value = it },
-                    label = { Text("Address") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+            }
+
+            // Payment Accounts Card
+            PremiumCard(onClick = { navController.navigate("payment_accounts") }) {
+                SettingsItem(
+                    icon = Icons.Default.QrCode,
+                    title = "Payment Accounts",
+                    subtitle = "Manage payment QR codes",
+                    onClick = { navController.navigate("payment_accounts") }
                 )
+            }
+
+            // Subscription Card
+            PremiumCard(onClick = { navController.navigate("subscription") }) {
+                SettingsItem(
+                    icon = Icons.Default.CardMembership,
+                    title = "Subscription",
+                    subtitle = "Manage your plan",
+                    onClick = { navController.navigate("subscription") }
+                )
+            }
+
+            // Receipt Customization
+            PremiumCard(onClick = { navController.navigate("receipt_customization") }) {
+                SettingsItem(
+                    icon = Icons.Default.Receipt,
+                    title = "Receipt Customization",
+                    subtitle = "Edit headers & QR visibility",
+                    onClick = { navController.navigate("receipt_customization") }
+                )
+            }
+
+            // Staff Management
+            PremiumCard {
+                val staffList by staffViewModel.allStaff.collectAsState()
+                var showStaffDialog by remember { mutableStateOf(false) }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Staff Management", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { staffViewModel.clearFields(); showStaffDialog = true }) {
+                        Icon(Icons.Default.PersonAdd, null, tint = OrangePrimary)
+                    }
+                }
                 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = viewModel.profilePhone.value,
-                        onValueChange = { viewModel.profilePhone.value = it },
-                        label = { Text("Phone") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
-                    )
-                    OutlinedTextField(
-                        value = viewModel.profileGst.value,
-                        onValueChange = { viewModel.profileGst.value = it },
-                        label = { Text("GST NO") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                staffList.forEach { s ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(OrangePrimary), contentAlignment = Alignment.Center) {
+                            Text(s.name.take(1).uppercase(), color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(s.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(s.username, color = Color.Gray, fontSize = 11.sp)
+                        }
+                        IconButton(onClick = { staffViewModel.startEditing(s); showStaffDialog = true }) { Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(16.dp)) }
+                        IconButton(onClick = { staffViewModel.deleteStaff(s) }) { Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(16.dp)) }
+                    }
                 }
 
-                OutlinedTextField(
-                    value = viewModel.profileFooter.value,
-                    onValueChange = { viewModel.profileFooter.value = it },
-                    label = { Text("Receipt Footer Message") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                if (showStaffDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showStaffDialog = false },
+                        containerColor = SurfaceDark,
+                        title = { Text(if (staffViewModel.editingStaff.value == null) "Add Staff" else "Edit Staff", color = Color.White) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedTextField(
+                                    value = staffViewModel.staffName.value,
+                                    onValueChange = { 
+                                        staffViewModel.staffName.value = it
+                                        staffViewModel.updateGeneratedUsername()
+                                    },
+                                    label = { Text("Full Name") }
+                                )
+                                
+                                if (staffViewModel.generatedUsername.value.isNotEmpty()) {
+                                    Text(
+                                        text = "Username: ${staffViewModel.generatedUsername.value}",
+                                        color = OrangePrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
+                                OutlinedTextField(
+                                    value = staffViewModel.password.value,
+                                    onValueChange = { staffViewModel.password.value = it },
+                                    label = { Text("Password") }
+                                )
+
+                                var roleExpanded by remember { mutableStateOf(false) }
+                                Box {
+                                    OutlinedTextField(
+                                        value = staffViewModel.staffRole.value.uppercase(),
+                                        onValueChange = { },
+                                        label = { Text("Role") },
+                                        readOnly = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        trailingIcon = { IconButton(onClick = { roleExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                                    )
+                                    DropdownMenu(expanded = roleExpanded, onDismissRequest = { roleExpanded = false }) {
+                                        listOf("staff", "admin").forEach { r ->
+                                            DropdownMenuItem(text = { Text(r.uppercase()) }, onClick = { staffViewModel.staffRole.value = r; roleExpanded = false })
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(onClick = { staffViewModel.saveStaff { showStaffDialog = false } }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                                Text("SAVE", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        // Printer Card
+        PremiumCard {
+            val connected by viewModel.connectedDevice.collectAsState()
+            val scanning by viewModel.isScanning.collectAsState()
+            val scanned by viewModel.scannedDevices.collectAsState()
+            val printerError by viewModel.printerError.collectAsState()
+            
+            Text("Printer & Receipt", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            SettingsItem(
+                icon = Icons.Default.Print,
+                title = connected?.name ?: "No Printer Connected",
+                subtitle = if (connected != null) "Ready to print" else "Scan to connect a device",
+                trailing = {
+                    if (connected != null) Icon(Icons.Default.CheckCircle, null, tint = Color.Green)
+                    else if (scanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = OrangePrimary)
+                }
+            )
+
+            if (printerError != null) {
+                Text(printerError!!, color = Color.Red, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            }
+
+            if (connected == null && scanned.isNotEmpty()) {
+                Text("PAIRED DEVICES", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                scanned.forEach { d ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.connectPrinter(d) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Bluetooth, null, tint = OrangePrimary.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(d.name, color = Color.White, modifier = Modifier.weight(1f), fontSize = 14.sp)
+                        Icon(Icons.Default.ChevronRight, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { viewModel.saveProfileSettings() },
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    onClick = { if (connected != null) viewModel.disconnectPrinter() else viewModel.scanPrinters() },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (connected != null) Color.Red.copy(alpha = 0.1f) else OrangePrimary, contentColor = if (connected != null) Color.Red else Color.Black),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("UPDATE BUSINESS INFO", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text(if (connected != null) "Disconnect" else "Scan Printers")
                 }
-            }
-        }
-
-        // Printer Settings
-        Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
-            val connectedDevice by viewModel.connectedDevice.collectAsState()
-            val scannedDevices by viewModel.scannedDevices.collectAsState()
-            val isScanning by viewModel.isScanning.collectAsState()
-            val printerError by viewModel.printerError.collectAsState()
-
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("PRINTER CONFIGURATION", fontWeight = FontWeight.Black, color = OrangePrimary, fontSize = 16.sp)
-                
-                if (connectedDevice != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Print, null, tint = Color.Green, modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(connectedDevice!!.name, color = Color.White, fontWeight = FontWeight.Bold)
-                            Text(connectedDevice!!.address, color = Color.Gray, fontSize = 12.sp)
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
-                        TextButton(onClick = { viewModel.logout() /* Add disconnect if needed */ }) {
-                            Text("DISCONNECT", color = Color.Red)
-                        }
-                    }
+                if (connected != null) {
                     Button(
                         onClick = { viewModel.testPrint() },
+                        modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("TEST PRINT")
-                    }
-                } else {
-                    Text("No printer connected", color = Color.Gray, fontSize = 14.sp)
-                    if (printerError != null) {
-                        Text(printerError!!, color = Color.Red, fontSize = 12.sp)
-                    }
-                    Button(
-                        onClick = { viewModel.scanPrinters() },
-                        enabled = !isScanning,
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (isScanning) CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
-                        else Text("SCAN FOR PRINTERS", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("Test Print")
                     }
                 }
+            }
 
-                if (scannedDevices.isNotEmpty() && connectedDevice == null) {
-                    Text("AVAILABLE PRINTERS", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    scannedDevices.forEach { device ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.connectPrinter(device) }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Bluetooth, null, tint = Color.Gray)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(device.name, color = Color.White, modifier = Modifier.weight(1f))
-                            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
-                        }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Paper Size", color = Color.Gray, fontSize = 12.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("58mm", "80mm", "Auto").forEach { size ->
+                    val selected = viewModel.paperWidth.value == size
+                    Box(
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(if (selected) OrangePrimary else Color.White.copy(alpha = 0.05f)).clickable { viewModel.paperWidth.value = size }.padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(size, color = if (selected) Color.Black else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Security / Backup
+        PremiumCard {
+            Text("Data & Security", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            SettingsItem(icon = Icons.Default.Lock, title = "Reset Password", onClick = { Toast.makeText(context, "Reset email sent!", Toast.LENGTH_SHORT).show() })
+            SettingsItem(icon = Icons.Default.Backup, title = "Cloud Sync", onClick = { viewModel.runBackup(); Toast.makeText(context, "Syncing...", Toast.LENGTH_SHORT).show() })
+        }
 
-        Button(
-            onClick = { viewModel.logout(); navController.navigate("login") { popUpTo(0) } }, 
-            modifier = Modifier.fillMaxWidth().height(56.dp), 
+        // Support Card
+        PremiumCard(onClick = { navController.navigate("support") }) {
+            SettingsItem(
+                icon = Icons.Default.SupportAgent,
+                title = "Support & AI Assistant",
+                subtitle = "AI Chat, Voice commands & FAQs",
+                onClick = { navController.navigate("support") }
+            )
+        }
+
+        // Logout
+        OutlinedButton(
+            onClick = { viewModel.logout(); navController.navigate("login") { popUpTo(0) } },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.1f), contentColor = Color.Red),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
             border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.3f))
         ) {
             Icon(Icons.Default.Logout, null)
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Text("LOGOUT ACCOUNT", fontWeight = FontWeight.Bold)
         }
         
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(100.dp))
+    }
+}
+
+// --- RECEIPT CUSTOMIZATION SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReceiptCustomizationScreen(navController: NavController, viewModel: SettingsViewModel) {
+    val context = LocalContext.current
+    val profile by viewModel.profile.collectAsState(null)
+    val activeQr by viewModel.activeQr.collectAsState(null)
+    
+    val previewText = buildString {
+        if (viewModel.showBusinessName.value) append("${profile?.name ?: "STORE NAME"}\n")
+        if (viewModel.showAddress.value) append("${profile?.address ?: "Address"}\n")
+        if (viewModel.showPhone.value) append("Ph: ${profile?.phone ?: "Phone"}\n")
+        if (viewModel.showGst.value) append("GST: 27AAAAA0000A1Z5\n")
+        append("--------------------------------\n")
+        if (viewModel.showOrderNumber.value) append("TOKEN NO: T-123\n")
+        append("--------------------------------\n")
+        append("Invoice: #INV-001\n")
+        if (viewModel.showDateTime.value) append("Date: 15/08/2026  Time: 12:00 PM\n")
+        if (viewModel.showCashierName.value) append("Cashier: Admin\n")
+        append("--------------------------------\n")
+        append("Masala Chai      2  30.00\n")
+        append("Samosa           1  20.00\n")
+        append("--------------------------------\n")
+        append("TOTAL: Rs. 50.00\n")
+        append("--------------------------------\n")
+        if (viewModel.qrEnabled.value && activeQr != null) append("[QR: ${activeQr?.name}]\n")
+        append("${profile?.footerMessage}\n")
+        if (viewModel.showVisitAgain.value) append("Visit Again!\n")
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Receipt Customization") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+            )
+        },
+        containerColor = DarkBackground
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+            Text("LIVE PREVIEW", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(previewText, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color.Black, textAlign = TextAlign.Center)
+                    if (viewModel.qrEnabled.value && activeQr != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AsyncImage(
+                            model = activeQr!!.imagePath,
+                            contentDescription = null,
+                            modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            ReceiptSectionTitle("Header")
+            ReceiptToggleItem("Show Business Name", viewModel.showBusinessName)
+            ReceiptToggleItem("Show Address", viewModel.showAddress)
+            ReceiptToggleItem("Show Phone", viewModel.showPhone)
+            ReceiptToggleItem("Show GST", viewModel.showGst)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ReceiptSectionTitle("Body")
+            ReceiptToggleItem("Show Date & Time", viewModel.showDateTime)
+            ReceiptToggleItem("Show Order Number", viewModel.showOrderNumber)
+            ReceiptToggleItem("Show Cashier Name", viewModel.showCashierName)
+            ReceiptToggleItem("Show Discounts", viewModel.showDiscounts)
+            ReceiptToggleItem("Show Taxes", viewModel.showTaxes)
+            if (viewModel.showTaxes.value) {
+                OutlinedTextField(
+                    value = viewModel.taxPercentage.value,
+                    onValueChange = { viewModel.taxPercentage.value = it },
+                    label = { Text("Tax Percentage (%)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ReceiptSectionTitle("Footer")
+            ReceiptToggleItem("Show Payment QR", viewModel.qrEnabled)
+            if (viewModel.qrEnabled.value) {
+                if (activeQr != null) {
+                    Text("Active Account: ${activeQr?.name}", color = Color.Green, fontSize = 12.sp)
+                } else {
+                    Text("No active payment account. Go to Settings > Payment Accounts", color = Color.Red, fontSize = 12.sp)
+                }
+            }
+            ReceiptToggleItem("Show \"Visit Again\"", viewModel.showVisitAgain)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { viewModel.resetReceiptSettings() }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))) {
+                    Text("Reset")
+                }
+                Button(
+                    onClick = { 
+                        viewModel.saveReceiptSettings { 
+                            Toast.makeText(context, "Receipt settings saved successfully", Toast.LENGTH_SHORT).show()
+                            navController.popBackStack() 
+                        } 
+                    }, 
+                    modifier = Modifier.weight(1f), 
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)
+                ) {
+                    Text("Save Receipt")
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(50.dp))
+        }
+    }
+}
+
+// --- PAYMENT ACCOUNTS SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PaymentAccountsScreen(navController: NavController, viewModel: SettingsViewModel) {
+    val qrs by viewModel.allQrs.collectAsState()
+    val context = LocalContext.current
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    val qrLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { viewModel.savePaymentQr(it, context) { showAddDialog = false } }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Payment Accounts") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+            )
+        },
+        containerColor = DarkBackground,
+        floatingActionButton = {
+            FloatingActionButton(onClick = { viewModel.qrAccountName.value = ""; showAddDialog = true }, containerColor = OrangePrimary) {
+                Icon(Icons.Default.Add, null, tint = Color.Black)
+            }
+        }
+    ) { padding ->
+        LazyColumn(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            items(qrs) { qr ->
+                PremiumCard(onClick = { if (!qr.isActive) viewModel.setActiveQr(qr.id) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            model = qr.imagePath,
+                            contentDescription = null,
+                            modifier = Modifier.size(60.dp).clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(qr.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            if (qr.isActive) {
+                                Text("ACTIVE", color = Color.Green, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Text("Tap to activate", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+                        IconButton(onClick = { viewModel.deleteQr(qr) }) {
+                            Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f))
+                        }
+                    }
+                }
+            }
+            if (qrs.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No payment accounts found.\nTap + to add one.", color = Color.Gray, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+        }
+
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                containerColor = SurfaceDark,
+                title = { Text("Add Payment Account", color = Color.White) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = viewModel.qrAccountName.value,
+                            onValueChange = { viewModel.qrAccountName.value = it },
+                            label = { Text("Account Name (e.g. PhonePe)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("You will upload the QR image after clicking Save.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = { qrLauncher.launch("image/*") }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                        Text("Select QR & Save", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
     }
 }
 
 @Composable
-fun ThermalReceiptDialog(receiptText: String, currency: String, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                // Receipt Header
-                Text(
-                    "RECEIPT PREVIEW",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 14.sp,
-                    color = Color.Black,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
+fun ReceiptSectionTitle(title: String) {
+    Text(title.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
+}
+
+@Composable
+fun ReceiptToggleItem(label: String, state: MutableState<Boolean>) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(label, color = Color.White, modifier = Modifier.weight(1f))
+        Switch(checked = state.value, onCheckedChange = { state.value = it }, colors = SwitchDefaults.colors(checkedThumbColor = OrangePrimary))
+    }
+}
+
+// --- SUBSCRIPTION SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SubscriptionScreen(navController: NavController, viewModel: SubscriptionViewModel) {
+    val sub by viewModel.subscription.collectAsState()
+    val plans by viewModel.availablePlans.collectAsState()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Subscription") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+            )
+        },
+        containerColor = DarkBackground
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+            Text("CURRENT PLAN", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
+            Spacer(modifier = Modifier.height(8.dp))
+            PremiumCard {
+                Text(sub?.planName ?: "Free Trial", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                Text("Rs.${sub?.amount?.toInt() ?: 0} / Month", color = OrangePrimary, fontWeight = FontWeight.Bold)
+                
+                Divider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 16.dp))
+                
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    SubscriptionStat("Status", sub?.status?.uppercase() ?: "ACTIVE", if (sub?.status == "active") Color.Green else Color.Red)
+                    SubscriptionStat("Expires On", SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(sub?.expiryDate ?: 0L)), Color.White)
+                }
+                
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Receipt Content (Fixed Width 58mm feel)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF9F9F9), RoundedCornerShape(8.dp))
-                        .padding(12.dp)
-                ) {
-                    Text(
-                        text = receiptText,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        color = Color.Black
-                    )
+                val remainingDays = ((sub?.expiryDate ?: System.currentTimeMillis()) - System.currentTimeMillis()) / (1000 * 60 * 60 * 24)
+                Text("$remainingDays Days Remaining", color = if (remainingDays < 5) Color.Red else Color.Gray, fontSize = 14.sp)
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = { }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                    Text("Renew Now")
                 }
+            }
 
-                Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("DONE", color = Color.Black, fontWeight = FontWeight.Bold)
+            Text("UPGRADE PLANS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
+            Spacer(modifier = Modifier.height(12.dp))
+            plans.forEach { plan ->
+                PremiumCard(modifier = Modifier.padding(bottom = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(plan.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Rs.${plan.price.toInt()}/month", color = OrangePrimary, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { viewModel.renewSubscription(plan) },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (sub?.planId == plan.id) Color.White.copy(alpha = 0.1f) else OrangePrimary),
+                            enabled = sub?.planId != plan.id
+                        ) {
+                            Text(if (sub?.planId == plan.id) "Current" else "Upgrade")
+                        }
                     }
-                    Button(
-                        onClick = { /* Share Logic */ },
+                    Spacer(modifier = Modifier.height(12.dp))
+                    plan.features.forEach { feature ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                            Icon(Icons.Default.Check, null, tint = Color.Green, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(feature, color = Color.Gray, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SubscriptionStat(label: String, value: String, valueColor: Color) {
+    Column {
+        Text(label, color = Color.Gray, fontSize = 12.sp)
+        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    }
+}
+
+// --- SUPPORT & AI ASSISTANT SCREEN ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel) {
+    val messages by viewModel.messages.collectAsState()
+    val isLimitReached by viewModel.isLimitReached.collectAsState()
+    var userMessage by remember { mutableStateOf("") }
+    val scrollState = rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            scrollState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Support & AI") },
+                navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
+            )
+        },
+        containerColor = DarkBackground
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            // Chat Area
+            LazyColumn(
+                state = scrollState,
+                modifier = Modifier.weight(1f).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(messages) { msg ->
+                    ChatBubble(msg)
+                }
+            }
+
+            // Quick Support Actions
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuickActionChip(Icons.Default.Phone, "Call") { /* Call Support */ }
+                QuickActionChip(Icons.Default.Email, "Email") { /* Email Support */ }
+                QuickActionChip(Icons.Default.QuestionAnswer, "FAQ") { /* FAQ */ }
+            }
+
+            // Input Area
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { /* Voice Assistant */ }) {
+                        Icon(Icons.Default.Mic, null, tint = OrangePrimary)
+                    }
+                    OutlinedTextField(
+                        value = userMessage,
+                        onValueChange = { userMessage = it },
+                        placeholder = { Text("Ask anything...") },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent
+                        ),
+                        singleLine = true
+                    )
+                    IconButton(
+                        onClick = { 
+                            viewModel.sendMessage(userMessage, navController)
+                            userMessage = ""
+                        },
+                        enabled = userMessage.isNotBlank() && !isLimitReached
                     ) {
-                        Icon(Icons.Default.Share, null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("SHARE", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Send, null, tint = if (userMessage.isNotBlank()) OrangePrimary else Color.Gray)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(message: AiMessage) {
+    val alignment = if (message.isUser) Alignment.End else Alignment.Start
+    val color = if (message.isUser) OrangePrimary else Color.White.copy(alpha = 0.1f)
+    val textColor = if (message.isUser) Color.Black else Color.White
+
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = alignment) {
+        Card(
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (message.isUser) 16.dp else 0.dp,
+                bottomEnd = if (message.isUser) 0.dp else 16.dp
+            ),
+            colors = CardDefaults.cardColors(containerColor = color)
+        ) {
+            Text(
+                text = message.content,
+                modifier = Modifier.padding(12.dp),
+                color = textColor,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun QuickActionChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label, color = Color.White, fontSize = 12.sp) },
+        leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp), tint = OrangePrimary) },
+        colors = AssistChipDefaults.assistChipColors(containerColor = SurfaceDark)
+    )
+}
+
+@Composable
+fun ThermalReceiptDialog(receiptText: String, currency: String, onDismiss: () -> Unit, onPrint: (() -> Unit)? = null) {
+    val application = OptixApplication.instance
+    val factory = ViewModelFactory(application)
+    val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+    val profile by settingsViewModel.profile.collectAsState(null)
+    val activeQr by settingsViewModel.activeQr.collectAsState(null)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("RECEIPT PREVIEW", fontWeight = FontWeight.Bold, color = Color.Black)
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                Box(modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp).background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).verticalScroll(rememberScrollState()).padding(12.dp)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(receiptText, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color.Black)
+                        
+                        if (profile?.qrEnabled == true && activeQr != null) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            AsyncImage(
+                                model = activeQr!!.imagePath,
+                                contentDescription = null,
+                                modifier = Modifier.size(100.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onDismiss, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray, contentColor = Color.Black)) {
+                        Text("CLOSE")
+                    }
+                    if (onPrint != null) {
+                        Button(onClick = { onPrint(); onDismiss() }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                            Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("PRINT")
+                        }
                     }
                 }
             }
