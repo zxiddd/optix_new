@@ -107,17 +107,18 @@ class AuthManager(context: Context) {
             }
     }
 
+    var onLogout: (() -> Unit)? = null
+
     fun logout() {
         auth.signOut()
-        prefs.edit()
-            .putString("user_role", "admin")
-            .putString("staff_name", null)
-            .putString("admin_id", null)
-            .apply()
+        prefs.edit().clear().apply()
+
         _userRole.value = "admin"
         _staffName.value = null
         _userId.value = null
         _isLoggedIn.value = false
+        
+        onLogout?.invoke()
     }
 
     companion object {

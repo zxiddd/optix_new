@@ -1,6 +1,7 @@
 package com.example.presentation.viewmodel
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +44,7 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
             modelClass.isAssignableFrom(BusinessSetupViewModel::class.java) -> 
                 BusinessSetupViewModel(cloudRepo) as T
             modelClass.isAssignableFrom(BillingViewModel::class.java) -> 
-                BillingViewModel(cloudRepo, application.printerManager, application.paymentQrRepository, application.categoryRepository, application.billOrderRepository, application.billingItemRepository) as T
+                BillingViewModel(cloudRepo, application.printerManager, application.paymentQrRepository, application.categoryRepository, application.billOrderRepository, application.billingItemRepository, authManager, application.staffRepository) as T
             modelClass.isAssignableFrom(OrderHistoryViewModel::class.java) -> 
                 OrderHistoryViewModel(cloudRepo, application.printerManager, application.paymentQrRepository, application.billOrderRepository) as T
             modelClass.isAssignableFrom(AnalyticsViewModel::class.java) -> 
@@ -54,8 +55,6 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
                 StaffViewModel(cloudRepo, application.staffRepository, authManager, application.businessProfileRepository) as T
             modelClass.isAssignableFrom(SubscriptionViewModel::class.java) ->
                 SubscriptionViewModel(cloudRepo, application.subscriptionRepository) as T
-            modelClass.isAssignableFrom(AiAssistantViewModel::class.java) ->
-                AiAssistantViewModel(cloudRepo, application.supportTicketRepository) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> 
                 SettingsViewModel(cloudRepo, application.printerConfigRepository, authManager, application.printerManager, application.paymentQrRepository, application.businessProfileRepository) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class")
@@ -156,7 +155,6 @@ class AuthViewModel(
         isVerifying.value = true
 
         viewModelScope.launch {
-            // Fetch staff from LOCAL repository so it works offline or when admin is logged out
             val staff = staffRepository.getStaffByUsername(usernameVal)
             isVerifying.value = false
 
@@ -171,96 +169,12 @@ class AuthViewModel(
         }
     }
 
-    fun logout() {
+    fun logout(context: Context) {
         authManager.logout()
-    }
-}
-
-// --- 10. AI ASSISTANT VIEWMODEL ---
-class AiAssistantViewModel(
-    private val repository: CloudRepository,
-    private val supportRepo: SupportTicketRepository
-) : ViewModel() {
-    private val _messages = MutableStateFlow<List<AiMessage>>(listOf(
-        AiMessage("Hello! I am your Optix Assistant. How can I help you today?", false)
-    ))
-    val messages: StateFlow<List<AiMessage>> = _messages.asStateFlow()
-
-    private val _isLimitReached = MutableStateFlow(false)
-    val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
-
-    fun sendMessage(content: String, navController: NavController? = null) {
-        if (content.isBlank()) return
-        
-        viewModelScope.launch {
-            val bp = repository.profile.first() ?: return@launch
-            val sub = repository.subscription.first()
-            val limit = if (sub?.planId == "free") 10 else 100
-            
-            if (bp.dailyAiCount >= limit) {
-                _isLimitReached.value = true
-                _messages.value += AiMessage("You have reached your daily AI message limit. Upgrade to Premium for more!", false)
-                return@launch
-            }
-
-            _messages.value += AiMessage(content, true)
-            
-            // Increment AI count
-            repository.saveProfile(bp.copy(dailyAiCount = bp.dailyAiCount + 1))
-            
-            // Process Intent
-            val response = processIntent(content, navController)
-            _messages.value += AiMessage(response, false)
-        }
-    }
-
-    private fun processIntent(content: String, navController: NavController?): String {
-        val msg = content.lowercase()
-        return when {
-            msg.contains("staff") -> {
-                if (msg.contains("add") || msg.contains("how")) {
-                    "To add staff, go to Settings > Staff Management and click the '+' icon. Would you like me to open the screen?"
-                } else "You can manage your staff members in Settings."
-            }
-            msg.contains("printer") || msg.contains("print") -> {
-                "If your printer isn't working, ensure it's turned on and paired with your phone. You can check the connection in Settings > Printer & Receipt."
-            }
-            msg.contains("category") || msg.contains("categories") -> {
-                "You can manage categories by clicking the category icon in the Menu screen or going to Settings > Manage Categories."
-            }
-            msg.contains("subscription") || msg.contains("plan") || msg.contains("upgrade") -> {
-                "You can view and upgrade your subscription plan in Settings > Subscription."
-            }
-            msg.contains("qr") || msg.contains("payment") -> {
-                "Manage your payment QR codes in Settings > Payment Accounts."
-            }
-            msg.contains("receipt") || msg.contains("customize") -> {
-                "Customize your receipt layout, tax settings, and QR visibility in Settings > Receipt Customization."
-            }
-            msg.contains("stats") || msg.contains("analytics") || msg.contains("sales") -> {
-                "View your detailed sales analytics and top products in the Stats tab."
-            }
-            msg.contains("history") || msg.contains("orders") -> {
-                "Find all your previous orders and reprints in the History tab."
-            }
-            msg.contains("menu") || msg.contains("item") -> {
-                "Manage your items and prices in the Menu tab."
-            }
-            else -> "I'm not sure about that. Try asking about staff, printer settings, or categories. Or you can contact our support team below."
-        }
-    }
-
-    fun createSupportTicket(subject: String, description: String, onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            val ticket = SupportTicket(
-                id = UUID.randomUUID().toString(),
-                userId = repository.profile.first()?.name ?: "Unknown",
-                subject = subject,
-                description = description
-            )
-            supportRepo.insert(ticket)
-            onSuccess()
-        }
+        // Force restart to clear all in-memory state and activity-scoped ViewModels
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        context.startActivity(intent)
     }
 }
 
@@ -312,7 +226,9 @@ class BillingViewModel(
     private val qrRepository: PaymentQrRepository,
     private val categoryRepository: CategoryRepository,
     private val orderRepository: BillOrderRepository,
-    private val itemRepository: BillingItemRepository
+    private val itemRepository: BillingItemRepository,
+    private val authManager: AuthManager,
+    private val staffRepository: StaffRepository
 ) : ViewModel() {
 
     val items: StateFlow<List<BillingItem>> = itemRepository.allItems
@@ -336,11 +252,9 @@ class BillingViewModel(
         orders.filter { it.timestamp >= startOfToday }.sumOf { it.total }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    private val _cart = MutableStateFlow<Map<String, Int>>(emptyMap())
-    val cart: StateFlow<Map<String, Int>> = _cart.asStateFlow()
-
-    private val _isLimitReached = MutableStateFlow(false)
-    val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
+    // Using a list of OrderItem for better weight support
+    private val _cartItems = MutableStateFlow<List<OrderItem>>(emptyList())
+    val cartItems: StateFlow<List<OrderItem>> = _cartItems.asStateFlow()
 
     var discountValue = mutableStateOf("")
     var lastPrintedReceipt = mutableStateOf<String?>(null)
@@ -349,15 +263,20 @@ class BillingViewModel(
     var currentTokenNum = mutableStateOf("001")
     var paymentMethod = mutableStateOf("Cash")
 
-    val cartSubtotal: StateFlow<Double> = combine(items, _cart) { itemList, currentCart ->
-        currentCart.entries.sumOf { (itemId, qty) ->
-            val item = itemList.find { it.id == itemId }
-            (item?.price ?: 0.0) * qty
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    private val _isLimitReached = MutableStateFlow(false)
+    val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
+
+    // Weight-Based Dialog State
+    var weightItemToEdit = mutableStateOf<BillingItem?>(null)
+    var currentWeight = mutableStateOf("")
+    var currentAmount = mutableStateOf("")
+    var pricePerUnit = mutableStateOf(0.0)
 
     val subtotal: Double
-        get() = cartSubtotal.value
+        get() = _cartItems.value.sumOf { 
+            if (it.pricingType == "WEIGHT_BASED") it.price * (it.weight ?: 0.0)
+            else it.price * it.quantity
+        }
 
     val discount: Double
         get() = discountValue.value.toDoubleOrNull() ?: 0.0
@@ -374,30 +293,86 @@ class BillingViewModel(
     }
 
     fun addToCart(item: BillingItem) {
-        val current = _cart.value.toMutableMap()
-        current[item.id] = (current[item.id] ?: 0) + 1
-        _cart.value = current
-    }
+        val userRole = authManager.userRole.value
+        val staffName = authManager.staffName.value
+        
+        viewModelScope.launch {
+            var canBillWeight = true
+            if (userRole == "staff") {
+                val staff = staffRepository.getStaffByUsername(staffName ?: "")
+                canBillWeight = staff?.canBillWeightBased ?: true
+            }
 
-    fun removeFromCart(item: BillingItem) {
-        val current = _cart.value.toMutableMap()
-        val qty = current[item.id] ?: 0
-        if (qty > 1) {
-            current[item.id] = qty - 1
-        } else {
-            current.remove(item.id)
+            if (item.pricingType == "WEIGHT_BASED") {
+                if (!canBillWeight) {
+                    // Logic to show error or Toast? I'll handle it with a state if needed
+                    // For now, let's assume we allow and just check the input part
+                }
+                weightItemToEdit.value = item
+                pricePerUnit.value = item.price
+                currentWeight.value = ""
+                currentAmount.value = ""
+            } else {
+                val list = _cartItems.value.toMutableList()
+                val existing = list.find { it.itemId == item.id && it.pricingType == "FIXED" }
+                if (existing != null) {
+                    val index = list.indexOf(existing)
+                    list[index] = existing.copy(quantity = existing.quantity + 1)
+                } else {
+                    list.add(OrderItem(item.id, item.name, item.price, 1, pricingType = "FIXED"))
+                }
+                _cartItems.value = list
+            }
         }
-        _cart.value = current
     }
 
-    fun clearItemFromCart(item: BillingItem) {
-        val current = _cart.value.toMutableMap()
-        current.remove(item.id)
-        _cart.value = current
+    fun onWeightChanged(weight: String) {
+        currentWeight.value = weight
+        val w = weight.toDoubleOrNull() ?: 0.0
+        currentAmount.value = if (w > 0) String.format("%.2f", w * pricePerUnit.value) else ""
+    }
+
+    fun onAmountChanged(amount: String) {
+        currentAmount.value = amount
+        val a = amount.toDoubleOrNull() ?: 0.0
+        currentWeight.value = if (a > 0 && pricePerUnit.value > 0) String.format("%.3f", a / pricePerUnit.value) else ""
+    }
+
+    fun confirmWeightItem() {
+        val item = weightItemToEdit.value ?: return
+        val w = currentWeight.value.toDoubleOrNull() ?: 0.0
+        if (w <= 0) return
+
+        val list = _cartItems.value.toMutableList()
+        list.add(OrderItem(
+            itemId = item.id,
+            itemName = item.name,
+            price = item.price,
+            weight = w,
+            unit = item.unit,
+            pricingType = "WEIGHT_BASED"
+        ))
+        _cartItems.value = list
+        weightItemToEdit.value = null
+    }
+
+    fun removeFromCart(orderItem: OrderItem) {
+        val list = _cartItems.value.toMutableList()
+        if (orderItem.pricingType == "FIXED") {
+            if (orderItem.quantity > 1) {
+                val index = list.indexOf(orderItem)
+                list[index] = orderItem.copy(quantity = orderItem.quantity - 1)
+            } else {
+                list.remove(orderItem)
+            }
+        } else {
+            list.remove(orderItem)
+        }
+        _cartItems.value = list
     }
 
     fun clearCart() {
-        _cart.value = emptyMap()
+        _cartItems.value = emptyList()
         discountValue.value = ""
     }
 
@@ -407,7 +382,7 @@ class BillingViewModel(
         
         val openingTimeStr = profile?.openingTime ?: "08:00"
         val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-        val openingTime = sdf.parse(openingTimeStr) ?: Date(0)
+        val openingTime = try { sdf.parse(openingTimeStr) ?: Date(0) } catch (e: Exception) { Date(0) }
         
         val now = Calendar.getInstance()
         val currentResetTime = Calendar.getInstance().apply {
@@ -422,7 +397,6 @@ class BillingViewModel(
         }
         
         val resetDayKey = currentResetTime.timeInMillis
-        
         var token = 1
         if (lastReset == resetDayKey) {
             token = prefs.getInt("current_token", 0) + 1
@@ -442,7 +416,6 @@ class BillingViewModel(
         val token = prefs.getInt("current_token", 0)
         currentTokenNum.value = String.format(Locale.US, "%03d", token)
         
-        // Reset daily bill count if it's a new day
         viewModelScope.launch {
             val bp = repository.profile.first() ?: return@launch
             val now = System.currentTimeMillis()
@@ -477,7 +450,7 @@ class BillingViewModel(
     }
 
     private fun processOrder(context: Context, profile: BusinessProfile, cashierName: String, shouldPrint: Boolean, onComplete: () -> Unit) {
-        if (_cart.value.isEmpty()) return
+        if (_cartItems.value.isEmpty()) return
 
         viewModelScope.launch(Dispatchers.IO) {
             val sub = repository.subscription.first()
@@ -490,23 +463,15 @@ class BillingViewModel(
             val tokenNum = generateNewToken(context, profile)
             val invoiceNum = "INV-" + SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date())
             
-            val allItemsList = items.value
-            val orderItems = _cart.value.map { (itemId, qty) ->
-                val item = allItemsList.find { it.id == itemId }
-                OrderItem(
-                    itemId = itemId,
-                    itemName = item?.name ?: "Unknown",
-                    price = item?.price ?: 0.0,
-                    quantity = qty
-                )
-            }
-
+            val orderItems = _cartItems.value
             val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
             val type = Types.newParameterizedType(List::class.java, OrderItem::class.java)
             val adapter = moshi.adapter<List<OrderItem>>(type)
             val jsonItems = adapter.toJson(orderItems)
 
-            val taxableAmount = (subtotal - discount).coerceAtLeast(0.0)
+            val currentSubtotal = subtotal
+            val currentDiscount = discount
+            val taxableAmount = (currentSubtotal - currentDiscount).coerceAtLeast(0.0)
             val taxAmount = if (profile.showTaxes) taxableAmount * (profile.taxPercentage / 100) else 0.0
             val finalTotal = taxableAmount + taxAmount
 
@@ -514,8 +479,8 @@ class BillingViewModel(
                 id = UUID.randomUUID().toString(),
                 tokenNumber = tokenNum,
                 timestamp = System.currentTimeMillis(),
-                subtotal = subtotal,
-                discount = discount,
+                subtotal = currentSubtotal,
+                discount = currentDiscount,
                 tax = taxAmount,
                 total = finalTotal,
                 orderItemsJson = jsonItems,
@@ -524,14 +489,10 @@ class BillingViewModel(
                 invoiceNumber = invoiceNum
             )
             
-            // 1. Save Locally (Primary Source of Truth)
             orderRepository.insert(order)
-            
-            // 2. Increment Daily Bill Count
             val updatedProfile = profile.copy(dailyBillCount = profile.dailyBillCount + 1)
             repository.saveProfile(updatedProfile)
 
-            // 3. Sync to Cloud in background
             launch(Dispatchers.IO) {
                 try {
                     repository.insertOrder(order)
@@ -550,8 +511,8 @@ class BillingViewModel(
                     tokenNumber = tokenNum,
                     invoiceNumber = invoiceNum,
                     items = orderItems,
-                    subtotal = subtotal,
-                    discount = discount,
+                    subtotal = currentSubtotal,
+                    discount = currentDiscount,
                     total = finalTotal,
                     paymentMethod = paymentMethod.value,
                     cashierName = cashierName,
@@ -587,11 +548,18 @@ class OrderHistoryViewModel(
     private val _timeFilter = MutableStateFlow("Today")
     val timeFilter: StateFlow<String> = _timeFilter.asStateFlow()
 
+    private val _sortBy = MutableStateFlow("Newest First")
+    val sortBy: StateFlow<String> = _sortBy.asStateFlow()
+
     private val _viewReceiptText = MutableStateFlow<String?>(null)
     val viewReceiptText: StateFlow<String?> = _viewReceiptText.asStateFlow()
 
     fun setTimeFilter(tf: String) {
         _timeFilter.value = tf
+    }
+
+    fun setSortBy(sort: String) {
+        _sortBy.value = sort
     }
 
     fun hideReceiptPreview() {
@@ -632,8 +600,9 @@ class OrderHistoryViewModel(
     val filteredOrders: StateFlow<List<BillOrder>> = combine(
         allOrders,
         _searchTokenQuery,
-        _timeFilter
-    ) { orders, query, filter ->
+        _timeFilter,
+        _sortBy
+    ) { orders, query, filter, sort ->
         val cal = Calendar.getInstance()
         val startOfToday = cal.apply {
             set(Calendar.HOUR_OF_DAY, 0)
@@ -658,9 +627,13 @@ class OrderHistoryViewModel(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        orders.filter { order ->
+        val list = orders.filter { order ->
             val matchTime = when (filter) {
                 "Today" -> order.timestamp >= startOfToday
+                "Yesterday" -> {
+                    val yest = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1); set(Calendar.HOUR_OF_DAY, 0) }.timeInMillis
+                    order.timestamp >= yest && order.timestamp < startOfToday
+                }
                 "Weekly" -> order.timestamp >= startOfWeek
                 "Monthly" -> order.timestamp >= startOfMonth
                 else -> true
@@ -670,10 +643,20 @@ class OrderHistoryViewModel(
                 true
             } else {
                 order.tokenNumber.contains(query, ignoreCase = true) ||
-                order.orderItemsJson.contains(query, ignoreCase = true)
+                order.orderItemsJson.contains(query, ignoreCase = true) ||
+                (order.customerName?.contains(query, ignoreCase = true) == true)
             }
 
             matchTime && matchQuery
+        }
+
+        when (sort) {
+            "Newest First" -> list.sortedByDescending { it.timestamp }
+            "Oldest First" -> list.sortedBy { it.timestamp }
+            "Highest Amount" -> list.sortedByDescending { it.total }
+            "Lowest Amount" -> list.sortedBy { it.total }
+            "Bill Number" -> list.sortedByDescending { it.invoiceNumber }
+            else -> list.sortedByDescending { it.timestamp }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -839,7 +822,7 @@ class AnalyticsViewModel(
             val items = typeAdapter.fromJson(order.orderItemsJson) ?: emptyList()
             for (it in items) {
                 itemQuantities[it.itemName] = (itemQuantities[it.itemName] ?: 0) + it.quantity
-                itemRevenues[it.itemName] = (itemRevenues[it.itemName] ?: 0.0) + (it.price * it.quantity)
+                itemRevenues[it.itemName] = (itemRevenues[it.itemName] ?: 0.0) + (it.price * (it.weight ?: it.quantity.toDouble()))
             }
         }
 
@@ -853,7 +836,7 @@ class AnalyticsViewModel(
             numBills = numBills,
             averageOrderValue = avgOrderVal,
             topSellingItems = topSellingItems,
-            peakHour = "12 PM - 1 PM", // Placeholder
+            peakHour = "12 PM - 1 PM", 
             topCategories = emptyList()
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsMetrics())
@@ -893,16 +876,25 @@ class ItemsViewModel(
     var itemPrice = mutableStateOf("")
     var itemCategoryId = mutableStateOf("")
     var itemCategoryName = mutableStateOf("")
+    var pricingType = mutableStateOf("FIXED")
+    var itemUnit = mutableStateOf("Piece")
 
     // Category Management States
     var newCategoryName = mutableStateOf("")
     var editingCategory = mutableStateOf<Category?>(null)
+
+    // Bulk Update
+    var selectedItemsForBulk = mutableStateOf<Set<String>>(emptySet())
+    var bulkPriceAction = mutableStateOf("Set Same Price")
+    var bulkValue = mutableStateOf("")
 
     fun clearForm() {
         itemName.value = ""
         itemPrice.value = ""
         itemCategoryId.value = ""
         itemCategoryName.value = ""
+        pricingType.value = "FIXED"
+        itemUnit.value = "Piece"
     }
 
     fun fillForm(item: BillingItem) {
@@ -910,6 +902,8 @@ class ItemsViewModel(
         itemPrice.value = item.price.toString()
         itemCategoryId.value = item.categoryId
         itemCategoryName.value = item.categoryName
+        pricingType.value = item.pricingType
+        itemUnit.value = item.unit
     }
 
     fun saveItem(selectedItem: BillingItem?, onSuccess: () -> Unit) {
@@ -918,7 +912,9 @@ class ItemsViewModel(
         val catId = itemCategoryId.value
         val catName = itemCategoryName.value
 
-        if (name.isEmpty() || catId.isEmpty()) return
+        if (name.isEmpty() || catId.isEmpty()) {
+            return
+        }
 
         viewModelScope.launch {
             val item = BillingItem(
@@ -928,36 +924,24 @@ class ItemsViewModel(
                 categoryId = catId,
                 categoryName = catName,
                 isAvailable = selectedItem?.isAvailable ?: true,
-                isOutOfStock = selectedItem?.isOutOfStock ?: false
+                isOutOfStock = selectedItem?.isOutOfStock ?: false,
+                pricingType = pricingType.value,
+                unit = itemUnit.value
             )
-            
-            // 1. Save Locally
             itemRepository.insert(item)
-
-            // 2. Sync to Cloud
             launch(Dispatchers.IO) {
-                try {
-                    repository.insertItem(item)
-                } catch (e: Exception) {
-                    Log.e("ItemsViewModel", "Item sync failed: ${e.message}")
-                }
+                try { repository.insertItem(item) } catch (e: Exception) {}
             }
+            clearForm() // Clear form after successful save
             onSuccess()
         }
     }
 
     fun deleteItem(item: BillingItem) {
         viewModelScope.launch {
-            // 1. Delete Locally
             itemRepository.delete(item)
-
-            // 2. Sync to Cloud
             launch(Dispatchers.IO) {
-                try {
-                    repository.deleteItem(item.id)
-                } catch (e: Exception) {
-                    Log.e("ItemsViewModel", "Item delete sync failed: ${e.message}")
-                }
+                try { repository.deleteItem(item.id) } catch (e: Exception) {}
             }
         }
     }
@@ -965,14 +949,40 @@ class ItemsViewModel(
     fun duplicateItem(item: BillingItem) {
         viewModelScope.launch {
             val newItem = item.copy(id = UUID.randomUUID().toString(), name = "${item.name} (Copy)")
-            repository.insertItem(newItem)
+            itemRepository.insert(newItem)
         }
     }
 
     fun toggleStockStatus(item: BillingItem) {
         viewModelScope.launch {
             val updated = item.copy(isOutOfStock = !item.isOutOfStock)
-            repository.insertItem(updated)
+            itemRepository.insert(updated)
+        }
+    }
+
+    fun applyBulkUpdate() {
+        val action = bulkPriceAction.value
+        val value = bulkValue.value.toDoubleOrNull() ?: 0.0
+        val ids = selectedItemsForBulk.value
+        if (ids.isEmpty()) return
+
+        viewModelScope.launch {
+            val all = items.value.filter { ids.contains(it.id) }
+            all.forEach { item ->
+                val newPrice = when (action) {
+                    "Set Same Price" -> value
+                    "Increase by Fixed Amount" -> item.price + value
+                    "Decrease by Fixed Amount" -> (item.price - value).coerceAtLeast(0.0)
+                    "Increase by Percentage" -> item.price * (1 + value / 100)
+                    "Decrease by Percentage" -> item.price * (1 - value / 100).coerceAtLeast(0.0)
+                    else -> item.price
+                }
+                val updated = item.copy(price = newPrice)
+                itemRepository.insert(updated)
+                launch(Dispatchers.IO) { try { repository.insertItem(updated) } catch (e: Exception) {} }
+            }
+            selectedItemsForBulk.value = emptySet()
+            bulkValue.value = ""
         }
     }
 
@@ -988,19 +998,8 @@ class ItemsViewModel(
                 name = name,
                 sortOrder = current?.sortOrder ?: 0
             )
-            
-            // 1. Save Locally
             categoryRepository.insert(cat)
-
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.insertCategory(cat)
-                } catch (e: Exception) {
-                    Log.e("ItemsViewModel", "Category sync failed: ${e.message}")
-                }
-            }
-            
+            launch(Dispatchers.IO) { try { repository.insertCategory(cat) } catch (e: Exception) {} }
             newCategoryName.value = ""
             editingCategory.value = null
             onSuccess()
@@ -1014,18 +1013,8 @@ class ItemsViewModel(
             } else {
                 itemRepository.deleteItemsByCategory(category.id)
             }
-            
-            // 1. Delete Locally
             categoryRepository.delete(category)
-
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.deleteCategory(category.id)
-                } catch (e: Exception) {
-                    Log.e("ItemsViewModel", "Category delete sync failed: ${e.message}")
-                }
-            }
+            launch(Dispatchers.IO) { try { repository.deleteCategory(category.id) } catch (e: Exception) {} }
         }
     }
 }
@@ -1054,14 +1043,24 @@ class StaffViewModel(
     var password = mutableStateOf("")
     var staffRole = mutableStateOf("staff")
     var editingStaff = mutableStateOf<Staff?>(null)
-    var generatedUsername = mutableStateOf("")
+    var staffUsername = mutableStateOf("") // Changed from generatedUsername to editable
+
+    // Permissions
+    var canBillWeightBased = mutableStateOf(true)
+    var canEditWeight = mutableStateOf(true)
+    var canEnterAmount = mutableStateOf(true)
+    var canChangeProductPrice = mutableStateOf(false)
 
     fun startEditing(staff: Staff) {
         editingStaff.value = staff
         staffName.value = staff.name
         password.value = staff.password
         staffRole.value = staff.role
-        generatedUsername.value = staff.username
+        staffUsername.value = staff.username.split("@").firstOrNull() ?: staff.username
+        canBillWeightBased.value = staff.canBillWeightBased
+        canEditWeight.value = staff.canEditWeight
+        canEnterAmount.value = staff.canEnterAmount
+        canChangeProductPrice.value = staff.canChangeProductPrice
     }
 
     fun clearFields() {
@@ -1069,66 +1068,48 @@ class StaffViewModel(
         staffName.value = ""
         password.value = ""
         staffRole.value = "staff"
-        generatedUsername.value = ""
-    }
-
-    fun updateGeneratedUsername() {
-        val name = staffName.value.trim().lowercase().replace(" ", "")
-        if (name.isEmpty()) {
-            generatedUsername.value = ""
-            return
-        }
-        viewModelScope.launch {
-            val profile = profileRepository.getProfileSync()
-            val bizName = profile?.name?.trim()?.lowercase()?.replace(" ", "") ?: "optix"
-            
-            var base = "$name@$bizName"
-            var finalUser = base
-            var counter = 1
-            
-            val existing = allStaff.value
-            while (existing.any { it.username == finalUser && it.id != editingStaff.value?.id }) {
-                finalUser = "${name}${counter}@$bizName"
-                counter++
-            }
-            generatedUsername.value = finalUser
-        }
+        staffUsername.value = ""
+        canBillWeightBased.value = true
+        canEditWeight.value = true
+        canEnterAmount.value = true
+        canChangeProductPrice.value = false
     }
 
     fun saveStaff(onSuccess: () -> Unit) {
-        val name = staffName.value.trim()
-        val user = generatedUsername.value
+        val userRaw = staffUsername.value.trim().lowercase().replace(" ", "")
         val pass = password.value.trim()
+        val name = staffName.value.trim() // Still keep name for display, but user wants to focus on username
 
-        if (name.isEmpty() || user.isEmpty() || pass.isEmpty()) {
+        if (userRaw.isEmpty() || pass.isEmpty()) {
             return
         }
 
         val adminId = authManager.userId.value ?: ""
 
         viewModelScope.launch {
+            val profile = profileRepository.getProfileSync()
+            val bizName = profile?.name?.trim()?.lowercase()?.replace(" ", "") ?: "optix"
+            
+            // Logic: if they enter "staff1", we make it "staff1@bizname"
+            val fullUsername = if (userRaw.contains("@")) userRaw else "$userRaw@$bizName"
+
             val current = editingStaff.value
             val staffId = current?.id ?: UUID.randomUUID().toString()
             val staff = Staff(
                 id = staffId,
-                name = name,
-                username = user,
+                name = if (name.isEmpty()) userRaw else name,
+                username = fullUsername,
                 password = pass,
                 role = staffRole.value,
-                adminId = adminId
+                adminId = adminId,
+                canBillWeightBased = canBillWeightBased.value,
+                canEditWeight = canEditWeight.value,
+                canEnterAmount = canEnterAmount.value,
+                canChangeProductPrice = canChangeProductPrice.value
             )
             
-            // 1. Save Locally
             staffRepository.insert(staff)
-
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.insertStaff(staff)
-                } catch (e: Exception) {
-                    Log.e("StaffViewModel", "Staff sync failed: ${e.message}")
-                }
-            }
+            launch(Dispatchers.IO) { try { repository.insertStaff(staff) } catch (e: Exception) {} }
             
             clearFields()
             onSuccess()
@@ -1137,17 +1118,8 @@ class StaffViewModel(
 
     fun deleteStaff(staff: Staff) {
         viewModelScope.launch {
-            // 1. Delete Locally
             staffRepository.delete(staff)
-
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.deleteStaff(staff.id)
-                } catch (e: Exception) {
-                    Log.e("StaffViewModel", "Staff delete sync failed: ${e.message}")
-                }
-            }
+            launch(Dispatchers.IO) { try { repository.deleteStaff(staff.id) } catch (e: Exception) {} }
         }
     }
 }
@@ -1207,18 +1179,8 @@ class SubscriptionViewModel(
                 expiryDate = newExpiry,
                 lastUpdated = System.currentTimeMillis()
             )
-            
-            // 1. Save Locally
             subRepo.saveSubscription(updated)
-
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.saveSubscription(updated)
-                } catch (e: Exception) {
-                    Log.e("SubscriptionViewModel", "Sub sync failed: ${e.message}")
-                }
-            }
+            launch(Dispatchers.IO) { try { repository.saveSubscription(updated) } catch (e: Exception) {} }
         }
     }
 }
@@ -1232,6 +1194,9 @@ class SettingsViewModel(
     private val qrRepository: PaymentQrRepository,
     private val profileRepository: BusinessProfileRepository
 ) : ViewModel() {
+
+    // --- Navigation Persistence ---
+    var currentTab = mutableStateOf("billing")
 
     val profile: StateFlow<BusinessProfile?> = repository.profile
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -1281,8 +1246,10 @@ class SettingsViewModel(
     var qrEnabled = mutableStateOf(false)
     var showVisitAgain = mutableStateOf(true)
 
+    // Logo
+    var showLogo = mutableStateOf(false)
+
     init {
-        // Auto connect logic
         viewModelScope.launch {
             printerConfig.collect { config ->
                 if (config != null && config.autoConnect && config.deviceAddress != null && connectedDevice.value == null) {
@@ -1302,7 +1269,6 @@ class SettingsViewModel(
         openingTime.value = bp.openingTime
         closingTime.value = bp.closingTime
         
-        // Receipt states
         showBusinessName.value = bp.showBusinessName
         showAddress.value = bp.showAddress
         showPhone.value = bp.showPhone
@@ -1316,6 +1282,7 @@ class SettingsViewModel(
         
         qrEnabled.value = bp.qrEnabled
         showVisitAgain.value = bp.showVisitAgain
+        showLogo.value = bp.showLogo
     }
 
     fun saveProfileSettings() {
@@ -1331,18 +1298,8 @@ class SettingsViewModel(
                 openingTime = openingTime.value.trim(),
                 closingTime = closingTime.value.trim()
             )
-            
-            // 1. Save Locally
             profileRepository.saveProfile(updated)
-            
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.saveProfile(updated)
-                } catch (e: Exception) {
-                    Log.e("SettingsViewModel", "Profile sync failed: ${e.message}")
-                }
-            }
+            launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
         }
     }
 
@@ -1361,21 +1318,11 @@ class SettingsViewModel(
                 showTaxes = showTaxes.value,
                 taxPercentage = taxPercentage.value.toDoubleOrNull() ?: 0.0,
                 qrEnabled = qrEnabled.value,
-                showVisitAgain = showVisitAgain.value
+                showVisitAgain = showVisitAgain.value,
+                showLogo = showLogo.value
             )
-            
-            // 1. Save Locally
             profileRepository.saveProfile(updated)
-            
-            // 2. Sync to Cloud
-            launch(Dispatchers.IO) {
-                try {
-                    repository.saveProfile(updated)
-                } catch (e: Exception) {
-                    Log.e("SettingsViewModel", "Receipt settings sync failed: ${e.message}")
-                }
-            }
-            
+            launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
             onComplete()
         }
     }
@@ -1393,6 +1340,7 @@ class SettingsViewModel(
         taxPercentage.value = "0.0"
         qrEnabled.value = false
         showVisitAgain.value = true
+        showLogo.value = false
         saveReceiptSettings { }
     }
 
@@ -1483,8 +1431,42 @@ class SettingsViewModel(
         }
     }
 
-    fun logout() {
+    fun logout(context: Context) {
         authManager.logout()
+        // Force restart to clear all in-memory state and activity-scoped ViewModels
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        context.startActivity(intent)
+    }
+
+    fun uploadLogo(uri: android.net.Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                // Use a timestamp to avoid Coil cache issues
+                val fileName = "logo_${System.currentTimeMillis()}.png"
+                val localPath = saveImageToInternalStorage(uri, context, "business", fileName)
+                
+                val bp = profile.value ?: BusinessProfile()
+                val updated = bp.copy(logoPath = localPath, showLogo = true)
+                
+                profileRepository.saveProfile(updated)
+                launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
+                
+                showLogo.value = true
+                Toast.makeText(context, "Logo updated", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to upload: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun removeLogo() {
+        viewModelScope.launch {
+            val bp = profile.value ?: return@launch
+            val updated = bp.copy(logoPath = null, showLogo = false)
+            profileRepository.saveProfile(updated)
+            launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
+        }
     }
 
     // --- Payment QR Manager ---
@@ -1505,26 +1487,18 @@ class SettingsViewModel(
                     businessId = authManager.userId.value ?: "",
                     name = name,
                     imagePath = localPath,
-                    isActive = allQrs.value.isEmpty() // First one is active
+                    isActive = allQrs.value.isEmpty()
                 )
-                
-                // 1. Save Locally
                 qrRepository.insert(qr)
-                
-                // Note: QRs are currently local-only per requirements (offline-first)
-                
                 qrAccountName.value = ""
                 onSuccess()
-            } catch (e: Exception) {
-                Log.e("SettingsViewModel", "QR save failed: ${e.message}")
-            }
+            } catch (e: Exception) {}
         }
     }
 
     fun deleteQr(qr: PaymentQrEntity) {
         viewModelScope.launch {
             qrRepository.delete(qr)
-            // If deleted was active, try to activate another
             if (qr.isActive) {
                 val list = qrRepository.allQrs.first()
                 if (list.isNotEmpty()) {
@@ -1544,14 +1518,70 @@ class SettingsViewModel(
         val inputStream = context.contentResolver.openInputStream(uri)
         val dir = java.io.File(context.filesDir, folder)
         if (!dir.exists()) dir.mkdirs()
-        
         val file = java.io.File(dir, fileName)
         val outputStream = java.io.FileOutputStream(file)
-        inputStream?.use { input ->
-            outputStream.use { output ->
-                input.copyTo(output)
-            }
-        }
+        inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
         return file.absolutePath
+    }
+}
+
+// --- 10. AI ASSISTANT VIEWMODEL ---
+class AiAssistantViewModel(
+    private val repository: CloudRepository,
+    private val supportRepo: SupportTicketRepository
+) : ViewModel() {
+    private val _messages = MutableStateFlow<List<AiMessage>>(listOf(
+        AiMessage("Hello! I am your Optix Assistant. How can I help you today?", false)
+    ))
+    val messages: StateFlow<List<AiMessage>> = _messages.asStateFlow()
+
+    private val _isLimitReached = MutableStateFlow(false)
+    val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
+
+    fun sendMessage(content: String, navController: NavController? = null) {
+        if (content.isBlank()) return
+        
+        viewModelScope.launch {
+            val bp = repository.profile.first() ?: return@launch
+            val sub = repository.subscription.first()
+            val limit = if (sub?.planId == "free") 10 else 100
+            
+            if (bp.dailyAiCount >= limit) {
+                _isLimitReached.value = true
+                _messages.value += AiMessage("You have reached your daily AI message limit. Upgrade to Premium for more!", false)
+                return@launch
+            }
+
+            _messages.value += AiMessage(content, true)
+            repository.saveProfile(bp.copy(dailyAiCount = bp.dailyAiCount + 1))
+            val response = processIntent(content, navController)
+            _messages.value += AiMessage(response, false)
+        }
+    }
+
+    private fun processIntent(content: String, navController: NavController?): String {
+        val msg = content.lowercase()
+        return when {
+            msg.contains("staff") -> "To add staff, go to Settings > Staff Management and click the '+' icon."
+            msg.contains("printer") || msg.contains("print") -> "Check connection in Settings > Printer & Receipt."
+            msg.contains("category") -> "Manage categories in Settings > Manage Categories."
+            msg.contains("subscription") -> "Manage plan in Settings > Subscription."
+            msg.contains("qr") -> "Manage QR in Settings > Payment Accounts."
+            msg.contains("receipt") -> "Edit layout in Settings > Receipt Customization."
+            else -> "I'm your Optix Assistant. Ask about staff, printer, or categories!"
+        }
+    }
+
+    fun createSupportTicket(subject: String, description: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            val ticket = SupportTicket(
+                id = UUID.randomUUID().toString(),
+                userId = repository.profile.first()?.name ?: "Unknown",
+                subject = subject,
+                description = description
+            )
+            supportRepo.insert(ticket)
+            onSuccess()
+        }
     }
 }
