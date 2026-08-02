@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
         PaymentQrEntity::class,
         SupportTicket::class
     ], 
-    version = 11, 
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

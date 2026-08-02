@@ -6,7 +6,11 @@ import com.example.data.repository.*
 import com.example.services.AuthManager
 import com.example.services.PrinterManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import android.content.Context
+import java.io.File
 
 class OptixApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob())
@@ -30,6 +34,41 @@ class OptixApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        
+        // --- DATA ISOLATION & CLEANUP ---
+        authManager.onLogout = {
+            applicationScope.launch(Dispatchers.IO) {
+                try {
+                    // 1. Clear Room Database (Critical for isolation)
+                    database.clearAllTables()
+                    
+                    // 2. Reset In-memory managers
+                    printerManager.reset()
+
+                    // 3. Clear Token SharedPreferences
+                    getSharedPreferences("zaddy_token_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+                    
+                    // 3. Clear auth related fields if any other exist
+                    // (zaddy_auth_prefs is cleared in AuthManager.logout)
+
+                    // 4. Clear Internal Files (Logos, QRs, item images)
+                    listOf("business", "payment_qr", "items").forEach { folder ->
+                        val dir = File(filesDir, folder)
+                        if (dir.exists()) {
+                            dir.deleteRecursively()
+                        }
+                    }
+
+                    // 5. Clear External Files (Reports)
+                    val externalDir = getExternalFilesDir(null)
+                    if (externalDir?.exists() == true) {
+                        externalDir.deleteRecursively()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     companion object {

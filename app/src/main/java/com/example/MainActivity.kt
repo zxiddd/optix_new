@@ -140,6 +140,16 @@ fun OptixBillingApp() {
             ManageCategoriesScreen(navController, itemsViewModel)
         }
 
+        composable("manage_staff") {
+            val staffViewModel: StaffViewModel = viewModel(factory = factory)
+            ManageStaffScreen(navController, staffViewModel)
+        }
+
+        composable("add_edit_item") {
+            val itemsViewModel: ItemsViewModel = viewModel(factory = factory)
+            AddEditItemScreen(navController, itemsViewModel)
+        }
+
         composable("subscription") {
             val subViewModel: SubscriptionViewModel = viewModel(factory = factory)
             SubscriptionScreen(navController, subViewModel)

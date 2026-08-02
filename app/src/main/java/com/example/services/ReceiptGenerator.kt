@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.example.data.entity.BusinessProfile
 import com.example.data.entity.OrderItem
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -34,12 +37,32 @@ class ReceiptGenerator {
 
         add(EscPosConstants.INIT)
         
+        // 0. Logo
+        if (profile.showLogo && profile.logoPath != null) {
+            try {
+                val bitmap = BitmapFactory.decodeFile(profile.logoPath)
+                if (bitmap != null) {
+                    val scaled = scaleBitmap(bitmap, 300) // Optimized for 58mm
+                    add(EscPosConstants.ALIGN_CENTER)
+                    add(decodeBitmap(scaled))
+                    addText("\n")
+                }
+            } catch (e: Exception) {}
+        }
+
         // 1. Business Header
         add(EscPosConstants.ALIGN_CENTER)
         
         if (profile.showBusinessName) {
-            add(EscPosConstants.FONT_SIZE_BIG)
-            add(EscPosConstants.BOLD_ON)
+            // Check if name fits in one line with BIG font (usually ~16 chars max for double width)
+            // 58mm printer is 32 chars wide in normal font.
+            if (profile.name.length > 14) {
+                add(EscPosConstants.FONT_SIZE_NORMAL)
+                add(EscPosConstants.BOLD_ON)
+            } else {
+                add(EscPosConstants.FONT_SIZE_BIG)
+                add(EscPosConstants.BOLD_ON)
+            }
             addText("${profile.name}\n")
         }
         
@@ -92,8 +115,19 @@ class ReceiptGenerator {
         addLine()
 
         for (item in items) {
-            val name = if (item.itemName.length > 18) item.itemName.substring(0, 15) + "..." else item.itemName
-            addText(String.format("%-18s %3d %8.2f\n", name, item.quantity, item.price * item.quantity))
+            if (item.pricingType == "WEIGHT_BASED") {
+                // Chicken Curry
+                // 0.625 kg x Rs.320/kg
+                // Rs.200
+                val name = if (item.itemName.length > 30) item.itemName.substring(0, 27) + "..." else item.itemName
+                addText("$name\n")
+                val weightStr = String.format("%.3f %s", item.weight ?: 0.0, item.unit ?: "kg")
+                val detailLine = String.format("%-20s %10.2f\n", "$weightStr x ${profile.currency}${item.price.toInt()}/${item.unit}", item.price * (item.weight ?: 0.0))
+                addText(detailLine)
+            } else {
+                val name = if (item.itemName.length > 18) item.itemName.substring(0, 15) + "..." else item.itemName
+                addText(String.format("%-18s %3d %8.2f\n", name, item.quantity, item.price * item.quantity))
+            }
         }
         addLine()
 
@@ -106,7 +140,8 @@ class ReceiptGenerator {
         }
 
         if (profile.showTaxes && profile.taxPercentage > 0) {
-            val taxAmount = total * (profile.taxPercentage / 100)
+            val taxableAmount = (subtotal - discount).coerceAtLeast(0.0)
+            val taxAmount = taxableAmount * (profile.taxPercentage / 100)
             addText("Tax (${profile.taxPercentage}%): ${profile.currency}${String.format("%.2f", taxAmount)}\n")
         }
         

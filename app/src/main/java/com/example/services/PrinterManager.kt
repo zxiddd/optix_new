@@ -77,6 +77,13 @@ class PrinterManager private constructor(private val context: Context) {
         _connectedDevice.value = null
     }
 
+    fun reset() {
+        _connectedDevice.value = null
+        _scannedDevices.value = emptyList()
+        _error.value = null
+        lastUsedAddress = null
+    }
+
     private suspend fun ensureConnection(): Boolean {
         if (btService.isConnected()) return true
         

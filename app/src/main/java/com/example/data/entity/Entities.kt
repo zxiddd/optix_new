@@ -29,6 +29,10 @@ data class BusinessProfile(
     val showTaxes: Boolean = false,
     val taxPercentage: Double = 0.0,
     
+    // Receipt Logo Support
+    val showLogo: Boolean = false,
+    val logoPath: String? = null, // Local internal storage path
+
     // Receipt QR Branding (Offline-First)
     val qrEnabled: Boolean = false,
     val showVisitAgain: Boolean = true,
@@ -60,7 +64,7 @@ data class UserSubscription(
     val billingCycle: String = "monthly",
     val status: String = "active", 
     val purchaseDate: Long = System.currentTimeMillis(),
-    val expiryDate: Long = 0L, // 0 for lifetime free, though user requested 10 bills/day limit
+    val expiryDate: Long = 0L, 
     val autoRenew: Boolean = false,
     val paymentId: String? = null,
     val orderId: String? = null,
@@ -81,11 +85,15 @@ data class BillingItem(
     val name: String = "",
     val categoryId: String = "",
     val categoryName: String = "",
-    val price: Double = 0.0,
+    val price: Double = 0.0, // This is Price per Unit if Weight-Based
     val imageUrl: String? = null,
     val isAvailable: Boolean = true,
     val isOutOfStock: Boolean = false,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    
+    // Weight-Based Fields
+    val pricingType: String = "FIXED", // FIXED, WEIGHT_BASED
+    val unit: String = "Piece" // kg, g, L, ml, Piece, etc.
 )
 
 @Entity(tableName = "categories")
@@ -110,7 +118,8 @@ data class BillOrder(
     val orderItemsJson: String = "", 
     val paymentMethod: String = "Cash",
     val cashierName: String = "Admin",
-    val invoiceNumber: String = ""
+    val invoiceNumber: String = "",
+    val customerName: String? = null // For search improvements
 )
 
 @Entity(tableName = "printer_config")
@@ -131,7 +140,13 @@ data class Staff(
     val password: String = "",
     val isDisabled: Boolean = false,
     val role: String = "staff",
-    val adminId: String = ""
+    val adminId: String = "",
+    
+    // Staff Permissions
+    val canBillWeightBased: Boolean = true,
+    val canEditWeight: Boolean = true,
+    val canEnterAmount: Boolean = true,
+    val canChangeProductPrice: Boolean = false
 )
 
 @Entity(tableName = "daily_reports")
@@ -149,15 +164,18 @@ data class SupportTicket(
     val userId: String = "",
     val subject: String = "",
     val description: String = "",
-    val status: String = "open", // open, resolved
+    val status: String = "open", 
     val createdAt: Long = System.currentTimeMillis()
 )
 
 data class OrderItem(
     val itemId: String = "",
     val itemName: String = "",
-    val price: Double = 0.0,
-    val quantity: Int = 0
+    val price: Double = 0.0, // Fixed price or Price per Unit
+    val quantity: Int = 0, // Used for FIXED type
+    val weight: Double? = null, // Used for WEIGHT_BASED type
+    val unit: String? = null, // Used for WEIGHT_BASED type
+    val pricingType: String = "FIXED" // FIXED, WEIGHT_BASED
 )
 
 data class AiMessage(
