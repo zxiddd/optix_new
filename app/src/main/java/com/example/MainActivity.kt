@@ -15,6 +15,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.isActive
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -86,16 +87,20 @@ fun OptixBillingApp() {
     val authViewModel: AuthViewModel = viewModel(factory = factory)
     val profileViewModel: BusinessSetupViewModel = viewModel(factory = factory)
     
-    // Check initial destination ONCE
-    val startDestination = remember {
-        val isLoggedIn = authViewModel.isLoggedIn.value
-        val userRole = authViewModel.userRole.value
-        val profile = profileViewModel.profile.value
-        when {
-            isLoggedIn && (userRole == "staff" || profile?.setupCompleted == true) -> "main"
-            isLoggedIn -> "business_setup"
-            else -> "login"
+    val isLoggedIn = authViewModel.isLoggedIn.value
+    val userRole = authViewModel.userRole.value
+
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            com.example.services.RealtimeSyncManager.getInstance(application).connect()
+            com.example.services.SyncManager.getInstance(application).startSyncLoop()
+        } else {
+            com.example.services.RealtimeSyncManager.getInstance(application).disconnect()
         }
+    }
+
+    val startDestination = remember(isLoggedIn) {
+        if (isLoggedIn) "main" else "login"
     }
 
     NavHost(
@@ -143,6 +148,13 @@ fun OptixBillingApp() {
         composable("manage_staff") {
             val staffViewModel: StaffViewModel = viewModel(factory = factory)
             ManageStaffScreen(navController, staffViewModel)
+        }
+
+        composable("staff_detail/{staffId}") { backStackEntry ->
+            val staffId = backStackEntry.arguments?.getString("staffId") ?: ""
+            val staffViewModel: StaffViewModel = viewModel(factory = factory)
+            val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+            StaffDetailScreen(navController, staffId, staffViewModel, settingsViewModel)
         }
 
         composable("add_edit_item") {

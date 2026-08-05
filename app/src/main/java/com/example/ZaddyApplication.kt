@@ -27,6 +27,9 @@ class OptixApplication : Application() {
     val subscriptionRepository by lazy { SubscriptionRepository(database.subscriptionDao()) }
     val paymentQrRepository by lazy { PaymentQrRepository(database.paymentQrDao()) }
     val supportTicketRepository by lazy { SupportTicketRepository(database.supportTicketDao()) }
+    val staffActivityLogRepository by lazy { StaffActivityLogRepository(database.staffActivityLogDao()) }
+    val staffSessionRepository by lazy { StaffSessionRepository(database.staffSessionDao()) }
+    val notificationRepository by lazy { NotificationRepository(database.notificationDao()) }
 
     val authManager by lazy { AuthManager.getInstance(this) }
     val printerManager by lazy { PrinterManager.getInstance(this) }

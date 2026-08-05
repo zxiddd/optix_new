@@ -1,6 +1,7 @@
-// Production-grade Optix Backend Schema
+// Production-grade Optix Backend Enterprise Schema
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -52,29 +53,73 @@ enum StockMovementType {
   RETURN
 }
 
+enum SyncOperation {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCING
+  FAILED
+  SUCCESS
+}
+
 // --- CORE TABLES ---
 
 model Business {
-  id                String   @id @default(uuid())
-  name              String
-  email             String?
-  phone             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  isDeleted         Boolean  @default(false)
+  id                    String   @id @default(uuid())
+  name                  String
+  email                 String?
+  phone                 String?
+  address               String?
+  setupCompleted        Boolean  @default(false)
+  tokenCounter          Int      @default(0)
+  lastTokenResetDateTime DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  isDeleted             Boolean  @default(false)
+  deletedAt         DateTime?
+  deletedBy         String?
 
-  // Relations
+  // Multi-branch
+  branches          Branch[]
   settings          BusinessSettings?
   receiptSettings   ReceiptSettings?
   printerSettings   PrinterSettings[]
+  paymentQrs        PaymentQr[]
   users             User[]
   staff             Staff[]
   categories        Category[]
   products          Product[]
   orders            Order[]
   subscriptions     Subscription[]
-  paymentQrs        PaymentQr[]
   auditLogs         AuditLog[]
+  customers         Customer[]
+  expenses          Expense[]
+  expenseCategories ExpenseCategory[]
+  devices           Device[]
+  syncQueues        SyncQueue[]
+  featureFlags      FeatureFlag[]
+  apiKeys           ApiKey[]
+  notifications     Notification[]
+  dailySummaries    DailySalesSummary[]
+}
+
+model Branch {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  name        String
+  address     String?
+  phone       String?
+  isDefault   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isDeleted   Boolean  @default(false)
+
+  billingSessions BillingSession[]
 }
 
 model BusinessSettings {
@@ -100,7 +145,15 @@ model ReceiptSettings {
   showBusinessName  Boolean  @default(true)
   showAddress       Boolean  @default(true)
   showPhone         Boolean  @default(true)
+  showGst           Boolean  @default(false)
+  showDateTime      Boolean  @default(true)
+  showOrderNumber   Boolean  @default(true)
+  showCashierName   Boolean  @default(true)
+  showDiscounts     Boolean  @default(true)
+  showTaxes         Boolean  @default(false)
+  taxPercentage     Decimal  @default(0.0) @db.Decimal(10, 2)
   qrEnabled         Boolean  @default(false)
+  showVisitAgain    Boolean  @default(true)
 }
 
 model PrinterSettings {
@@ -109,8 +162,11 @@ model PrinterSettings {
   business          Business @relation(fields: [businessId], references: [id])
   deviceName        String?
   deviceAddress     String?
+  connectionType    String   @default("Bluetooth") // Bluetooth, USB, Network
   paperWidth        Int      @default(58) // 58 or 80
   autoConnect       Boolean  @default(true)
+  copies            Int      @default(1)
+  isDefault         Boolean  @default(true)
 }
 
 model User {
@@ -121,26 +177,35 @@ model User {
   businessId    String
   business      Business @relation(fields: [businessId], references: [id])
 
-  refreshToken  String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  devices       Device[]
 }
 
 model Staff {
-  id            String   @id @default(uuid())
-  name          String
-  username      String   @unique
-  password      String   // Argon2 Hashed
-  role          UserRole @default(STAFF)
-  businessId    String
-  business      Business @relation(fields: [businessId], references: [id])
+  id                  String    @id @default(uuid())
+  name                String
+  username            String    @unique
+  password            String    // Argon2 Hashed
+  role                UserRole  @default(STAFF)
+  businessId          String
+  business            Business  @relation(fields: [businessId], references: [id])
 
-  // Scoped Permissions
-  permissions   Permission[]
+  permissions         Permission[]
+  billingSessions     BillingSession[]
+  activityLogs        StaffActivityLog[]
+  sessions            StaffSession[]
 
-  isDisabled    Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isDisabled          Boolean   @default(false)
+  phone               String?
+  email               String?
+  failedLoginCount    Int       @default(0)
+  lastFailedLoginAt   DateTime?
+  lastActivityAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model Permission {
@@ -148,6 +213,109 @@ model Permission {
   staffId     String
   staff       Staff  @relation(fields: [staffId], references: [id])
   action      String // e.g., "DELETE_BILL", "VIEW_REPORTS", "MANAGE_INVENTORY"
+}
+
+model Device {
+  id             String   @id @default(uuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id])
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id])
+  deviceName     String
+  deviceModel    String?
+  androidVersion String?
+  lastSeen       DateTime @default(now())
+  pushToken      String?
+
+  refreshTokens   RefreshToken[]
+  billingSessions BillingSession[]
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  deviceId    String?
+  device      Device?  @relation(fields: [deviceId], references: [id])
+  tokenHash   String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model BillingSession {
+  id          String    @id @default(uuid())
+  branchId    String
+  branch      Branch    @relation(fields: [branchId], references: [id])
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id])
+  staffId     String?
+  staff       Staff?    @relation(fields: [staffId], references: [id])
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+  openingCash Decimal   @default(0.0) @db.Decimal(12, 2)
+  closingCash Decimal?  @db.Decimal(12, 2)
+  status      String    @default("OPEN") // OPEN, CLOSED
+}
+
+// --- CRM & EXPENSES ---
+
+model Customer {
+  id          String                @id @default(uuid())
+  businessId  String
+  business    Business              @relation(fields: [businessId], references: [id])
+  name        String
+  phone       String?
+  email       String?
+  totalDebt   Decimal               @default(0.0) @db.Decimal(12, 2)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  isDeleted   Boolean               @default(false)
+
+  transactions CustomerTransaction[]
+  addresses    CustomerAddress[]
+  orders       Order[]
+}
+
+model CustomerTransaction {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  amount      Decimal  @db.Decimal(12, 2)
+  type        String   // DEBIT, CREDIT
+  note        String?
+  createdAt   DateTime @default(now())
+}
+
+model CustomerAddress {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  street      String
+  city        String?
+  state       String?
+  pincode     String?
+}
+
+model ExpenseCategory {
+  id          String    @id @default(uuid())
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id])
+  name        String
+  expenses    Expense[]
+}
+
+model Expense {
+  id          String          @id @default(uuid())
+  businessId  String
+  business    Business        @relation(fields: [businessId], references: [id])
+  categoryId  String?
+  category    ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  title       String
+  amount      Decimal         @db.Decimal(12, 2)
+  note        String?
+  date        DateTime        @default(now())
+  createdAt   DateTime        @default(now())
 }
 
 // --- SYNCABLE ENTITIES ---
@@ -159,7 +327,6 @@ model Category {
   business    Business  @relation(fields: [businessId], references: [id])
   sortOrder   Int       @default(0)
 
-  // Sync metadata
   version     Int       @default(1)
   isDeleted   Boolean   @default(false)
   lastModified DateTime  @updatedAt @default(now())
@@ -185,7 +352,6 @@ model Product {
   isOutOfStock Boolean     @default(false)
   imageUrl     String?
 
-  // Sync metadata
   version      Int         @default(1)
   isDeleted    Boolean     @default(false)
   lastModified DateTime    @updatedAt @default(now())
@@ -215,25 +381,28 @@ model StockMovement {
 }
 
 model Order {
-  id             String      @id @default(uuid())
+  id             String        @id @default(uuid())
   tokenNumber    String
-  invoiceNumber  String      @unique
-  status         OrderStatus @default(PAID)
+  invoiceNumber  String
+  status         OrderStatus   @default(PAID)
 
-  subtotal       Decimal     @db.Decimal(12, 2)
-  discount       Decimal     @db.Decimal(12, 2)
-  tax            Decimal     @db.Decimal(12, 2)
-  total          Decimal     @db.Decimal(12, 2)
+  subtotal       Decimal       @db.Decimal(12, 2)
+  discount       Decimal       @db.Decimal(12, 2)
+  tax            Decimal       @db.Decimal(12, 2)
+  total          Decimal       @db.Decimal(12, 2)
 
   paymentMethod  PaymentMethod @default(CASH)
   cashierName    String
   customerName   String?
 
+  customerId     String?
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+
   businessId     String
-  business       Business    @relation(fields: [businessId], references: [id])
+  business       Business      @relation(fields: [businessId], references: [id])
 
   items          OrderItem[]
-  createdAt      DateTime    @default(now())
+  createdAt      DateTime      @default(now())
 }
 
 model OrderItem {
@@ -248,13 +417,25 @@ model OrderItem {
   unit        String?
 }
 
-// --- ADMINISTRATIVE ---
+// --- PLANS & SUBSCRIPTIONS ---
+
+model Plan {
+  id            String         @id @default(uuid())
+  name          String         // Free, Starter, Professional, Enterprise
+  price         Decimal        @db.Decimal(12, 2)
+  billingPeriod String         @default("MONTHLY") // MONTHLY, YEARLY
+  features      Json
+  createdAt     DateTime       @default(now())
+
+  subscriptions Subscription[]
+}
 
 model Subscription {
   id          String             @id @default(uuid())
   businessId  String
   business    Business           @relation(fields: [businessId], references: [id])
   planId      String
+  plan        Plan               @relation(fields: [planId], references: [id])
   status      SubscriptionStatus @default(TRIAL)
   expiryDate  DateTime
   createdAt   DateTime           @default(now())
@@ -265,10 +446,72 @@ model PaymentQr {
   id          String   @id @default(uuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
+  name        String   @default("UPI QR")
+  upiId       String?
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --- SYSTEM & QUEUES ---
+
+model SyncQueue {
+  id          String        @id @default(uuid())
+  businessId  String
+  business    Business      @relation(fields: [businessId], references: [id])
+  entity      String        // PRODUCT, CATEGORY, ORDER, etc.
+  entityId    String
+  operation   SyncOperation
+  status      SyncStatus    @default(PENDING)
+  retryCount  Int           @default(0)
+  createdAt   DateTime      @default(now())
+}
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  featureKey  String   // e.g. "INVENTORY", "AI", "QR_ORDERING"
+  isEnabled   Boolean  @default(true)
+}
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
   name        String
-  imageUrl    String
-  isActive    Boolean  @default(false)
-  lastModified DateTime @updatedAt
+  hashedKey   String
+  permissions String[]
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  title       String
+  message     String
+  type        String   @default("INFO")
+  severity    String   @default("INFO") // INFO, WARNING, CRITICAL
+  read        Boolean  @default(false)
+  isArchived  Boolean  @default(false)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model DailySalesSummary {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  date        DateTime
+  totalSales  Decimal  @db.Decimal(12, 2)
+  totalOrders Int
+  totalTax    Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  @@unique([businessId, date])
 }
 
 model AuditLog {
@@ -282,5 +525,36 @@ model AuditLog {
   oldValue    Json?
   newValue    Json?
   ipAddress   String?
+  endpoint    String?
+  requestId   String?
   createdAt   DateTime @default(now())
+}
+
+model StaffActivityLog {
+  id          String   @id @default(uuid())
+  staffId     String?
+  staff       Staff?   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  businessId  String
+  action      String   // e.g. "LOGIN", "CREATE_ORDER", "DELETE_ORDER", "CHANGE_PRICE"
+  entityType  String?  // e.g. "ORDER", "PRODUCT"
+  entityId    String?
+  metadata    Json?
+  deviceId    String?
+  ipAddress   String?
+  isSuspicious Boolean @default(false)
+  severity    String   @default("NORMAL") // NORMAL, WARNING, CRITICAL
+  createdAt   DateTime @default(now())
+}
+
+model StaffSession {
+  id          String    @id @default(uuid())
+  staffId     String
+  staff       Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  businessId  String
+  deviceId    String?
+  deviceName  String?
+  loginAt     DateTime  @default(now())
+  logoutAt    DateTime?
+  isActive    Boolean   @default(true)
+  ipAddress   String?
 }

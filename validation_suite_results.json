@@ -1,0 +1,107 @@
+[
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signup (Business A)",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/auth/local/signup not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 1295.65
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signup (Business B)",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/auth/local/signup not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 1252.36
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signin (Business A)",
+    "status": "FAIL",
+    "details": "'email'",
+    "latency": 0.0
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Wrong Password Rejection",
+    "status": "FAIL",
+    "details": "'email'",
+    "latency": 0.0
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Duplicate Email Handling",
+    "status": "FAIL",
+    "details": "'email'",
+    "latency": 0.0
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Invalid JWT Verification",
+    "status": "FAIL",
+    "details": "Expected 401/403, got 404",
+    "latency": 1033.14
+  },
+  {
+    "section": "3. Categories",
+    "test": "Create Category (Business A)",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/categories not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 956.06
+  },
+  {
+    "section": "3. Tenant Isolation",
+    "test": "Category Data Isolation",
+    "status": "FAIL",
+    "details": "Status 404",
+    "latency": 929.54
+  },
+  {
+    "section": "4. Products",
+    "test": "Create Product",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/products not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 1016.62
+  },
+  {
+    "section": "3. Tenant Isolation",
+    "test": "Product Data Isolation",
+    "status": "FAIL",
+    "details": "Status 404",
+    "latency": 1861.16
+  },
+  {
+    "section": "4. Products",
+    "test": "Soft Delete Product",
+    "status": "FAIL",
+    "details": "Status 404",
+    "latency": 1063.72
+  },
+  {
+    "section": "5. Billing",
+    "test": "Create Order with Items",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/orders not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 1642.65
+  },
+  {
+    "section": "3. Tenant Isolation",
+    "test": "Order Data Isolation",
+    "status": "FAIL",
+    "details": "Status 404",
+    "latency": 2161.86
+  },
+  {
+    "section": "6. Staff",
+    "test": "Create Staff Account",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route POST:/api/v1/staff not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 1889.56
+  },
+  {
+    "section": "7. Sync Engine",
+    "test": "Sync Pull Delta Endpoint",
+    "status": "FAIL",
+    "details": "Status 404: {\"message\":\"Route GET:/api/v1/sync/pull?lastSync=0 not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+    "latency": 2148.37
+  }
+]

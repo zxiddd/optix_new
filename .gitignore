@@ -16,3 +16,33 @@
 local.properties
 .env
 debug.keystore
+# Android
+.gradle/
+.idea/
+local.properties
+app/build/
+build/
+captures/
+*.iml
+
+# Kotlin
+*.class
+
+# Node
+node_modules/
+backend/node_modules/
+backend/dist/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Firebase
+google-services.json
+
+# Environment
+.env
+.env.*

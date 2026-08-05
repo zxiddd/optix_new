@@ -83,17 +83,24 @@ data class SubscriptionPlan(
 data class BillingItem(
     @PrimaryKey val id: String = "", 
     val name: String = "",
+    val description: String? = null,
+    val barcode: String? = null,
+    val sku: String? = null,
     val categoryId: String = "",
     val categoryName: String = "",
-    val price: Double = 0.0, // This is Price per Unit if Weight-Based
+    val price: Double = 0.0,
     val imageUrl: String? = null,
     val isAvailable: Boolean = true,
     val isOutOfStock: Boolean = false,
     val sortOrder: Int = 0,
+    val pricingType: String = "FIXED", // FIXED, WEIGHT, OPEN
+    val unit: String = "Piece",
     
-    // Weight-Based Fields
-    val pricingType: String = "FIXED", // FIXED, WEIGHT_BASED
-    val unit: String = "Piece" // kg, g, L, ml, Piece, etc.
+    // Sync Metadata
+    val version: Int = 1,
+    val isSynced: Boolean = false,
+    val lastModified: Long = System.currentTimeMillis(),
+    val isDeleted: Boolean = false
 )
 
 @Entity(tableName = "categories")
@@ -101,25 +108,34 @@ data class Category(
     @PrimaryKey val id: String = "", 
     val name: String = "",
     val businessId: String = "",
-    val isCustom: Boolean = false,
     val sortOrder: Int = 0,
-    val createdAt: Long = System.currentTimeMillis()
+    
+    // Sync Metadata
+    val version: Int = 1,
+    val isSynced: Boolean = false,
+    val lastModified: Long = System.currentTimeMillis(),
+    val isDeleted: Boolean = false
 )
 
 @Entity(tableName = "bill_orders")
 data class BillOrder(
     @PrimaryKey val id: String = "", 
     val tokenNumber: String = "",
+    val invoiceNumber: String = "",
+    val status: String = "PAID", // PAID, PENDING, CANCELLED
     val timestamp: Long = System.currentTimeMillis(),
     val subtotal: Double = 0.0,
     val discount: Double = 0.0,
     val tax: Double = 0.0,
     val total: Double = 0.0,
     val orderItemsJson: String = "", 
-    val paymentMethod: String = "Cash",
+    val paymentMethod: String = "CASH",
     val cashierName: String = "Admin",
-    val invoiceNumber: String = "",
-    val customerName: String? = null // For search improvements
+    val customerName: String? = null,
+    
+    // Sync Metadata
+    val isSynced: Boolean = false,
+    val lastModified: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "printer_config")
@@ -136,17 +152,71 @@ data class PrinterConfig(
 data class Staff(
     @PrimaryKey val id: String = "",
     val name: String = "",
-    val username: String = "", 
+    val username: String = "",
     val password: String = "",
     val isDisabled: Boolean = false,
     val role: String = "staff",
     val adminId: String = "",
-    
-    // Staff Permissions
+    val businessId: String = "",
+    val lastModified: Long = System.currentTimeMillis(),
+    val isDeleted: Boolean = false,
+
+    // Serialized permissions from server (e.g., ["WEIGHT_BILLING","CHANGE_PRICE"])
+    val permissionsJson: String = "[]",
+
+    // Staff Permissions (local boolean cache of permissionsJson for fast UI access)
     val canBillWeightBased: Boolean = true,
     val canEditWeight: Boolean = true,
     val canEnterAmount: Boolean = true,
-    val canChangeProductPrice: Boolean = false
+    val canChangeProductPrice: Boolean = false,
+
+    // Profile contact info
+    val phone: String? = null,
+    val email: String? = null,
+
+    // Activity tracking
+    val failedLoginCount: Int = 0,
+    val lastActivityAt: Long? = null
+)
+
+@Entity(tableName = "staff_activity_logs")
+data class StaffActivityLog(
+    @PrimaryKey val id: String = "",
+    val staffId: String = "",
+    val businessId: String = "",
+    val action: String = "",
+    val entityType: String? = null,
+    val entityId: String? = null,
+    val metadataJson: String? = null,
+    val deviceId: String? = null,
+    val isSuspicious: Boolean = false,
+    val severity: String = "NORMAL",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "staff_sessions")
+data class StaffSession(
+    @PrimaryKey val id: String = "",
+    val staffId: String = "",
+    val businessId: String = "",
+    val deviceId: String? = null,
+    val deviceName: String? = null,
+    val loginAt: Long = System.currentTimeMillis(),
+    val logoutAt: Long? = null,
+    val isActive: Boolean = true
+)
+
+@Entity(tableName = "notifications")
+data class NotificationEntity(
+    @PrimaryKey val id: String = "",
+    val businessId: String = "",
+    val title: String = "",
+    val message: String = "",
+    val type: String = "INFO",
+    val severity: String = "INFO",
+    val isRead: Boolean = false,
+    val isArchived: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "daily_reports")

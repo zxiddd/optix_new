@@ -1,0 +1,58 @@
+{
+  "1. Infrastructure": [
+    {
+      "test": "Docker Containers Running",
+      "status": "PASS",
+      "details": "optix-backend-staging\tUp 59 minutes (unhealthy)\t127.0.0.1:3000->3000/tcp\noptix-postgres-staging\tUp 3 hours (healthy)\t127.0.0.1:5432->5432/tcp\noptix-redis-staging\tUp 3 hours (healthy)\t127.0.0.1:6379->6379/tcp",
+      "latency_ms": 4061.12
+    },
+    {
+      "test": "PostgreSQL Healthy",
+      "status": "PASS",
+      "details": "/var/run/postgresql:5432 - accepting connections",
+      "latency_ms": 0
+    },
+    {
+      "test": "Redis Healthy",
+      "status": "PASS",
+      "details": "PONG",
+      "latency_ms": 0
+    },
+    {
+      "test": "HTTPS Certificate Valid",
+      "status": "PASS",
+      "details": "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\nFound the following certs:\n  Certificate Name: api.optixapp.in\n    Ser",
+      "latency_ms": 0
+    },
+    {
+      "test": "Nginx Reverse Proxy Active",
+      "status": "PASS",
+      "details": "active",
+      "latency_ms": 0
+    },
+    {
+      "test": "System Uptime & Load",
+      "status": "PASS",
+      "details": "15:28:12 up 4 days, 19:09,  2 users,  load average: 0.00, 0.01, 0.02",
+      "latency_ms": 0
+    },
+    {
+      "test": "GET /health Endpoint",
+      "status": "PASS",
+      "details": "{\"status\":\"SUCCESS\",\"data\":{\"service\":\"optix-backend-api\",\"uptime\":3592.009035936,\"timestamp\":1785684496343}}",
+      "latency_ms": 3516.89
+    },
+    {
+      "test": "GET /health/db Endpoint",
+      "status": "WARNING",
+      "details": "{\"message\":\"Route GET:/health/db not found\",\"error\":\"Not Found\",\"statusCode\":404}",
+      "latency_ms": 1627.48
+    },
+    {
+      "test": "Swagger Docs (/docs)",
+      "status": "WARNING",
+      "details": "Status: 404",
+      "latency_ms": 1904.14
+    }
+  ]
+}

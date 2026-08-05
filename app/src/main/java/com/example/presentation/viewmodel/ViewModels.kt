@@ -17,9 +17,6 @@ import com.example.services.AuthManager
 import com.example.services.PrinterManager
 import com.example.services.PrinterDevice
 import com.example.services.ReportService
-import com.google.firebase.auth.AuthCredential
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -27,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -36,13 +34,14 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val authManager = application.authManager
         val userId = authManager.userId.value ?: "guest"
-        val cloudRepo = CloudRepository(userId)
+        val token = authManager.getAccessToken()
+        val cloudRepo = CloudRepository(userId, token)
 
         return when {
             modelClass.isAssignableFrom(AuthViewModel::class.java) -> 
                 AuthViewModel(authManager, cloudRepo, application.staffRepository) as T
             modelClass.isAssignableFrom(BusinessSetupViewModel::class.java) -> 
-                BusinessSetupViewModel(cloudRepo) as T
+                BusinessSetupViewModel(cloudRepo, application.businessProfileRepository) as T
             modelClass.isAssignableFrom(BillingViewModel::class.java) -> 
                 BillingViewModel(cloudRepo, application.printerManager, application.paymentQrRepository, application.categoryRepository, application.billOrderRepository, application.billingItemRepository, authManager, application.staffRepository) as T
             modelClass.isAssignableFrom(OrderHistoryViewModel::class.java) -> 
@@ -52,7 +51,7 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
             modelClass.isAssignableFrom(ItemsViewModel::class.java) -> 
                 ItemsViewModel(cloudRepo, application.categoryRepository, application.billingItemRepository) as T
             modelClass.isAssignableFrom(StaffViewModel::class.java) ->
-                StaffViewModel(cloudRepo, application.staffRepository, authManager, application.businessProfileRepository) as T
+                StaffViewModel(cloudRepo, application.staffRepository, authManager, application.businessProfileRepository, application.staffActivityLogRepository, application.staffSessionRepository, application.notificationRepository) as T
             modelClass.isAssignableFrom(SubscriptionViewModel::class.java) ->
                 SubscriptionViewModel(cloudRepo, application.subscriptionRepository) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> 
@@ -76,9 +75,13 @@ class AuthViewModel(
     var authError = mutableStateOf<String?>(null)
     var isVerifying = mutableStateOf(false)
 
-    // Admin login fields
+    // Admin login / signup fields
     var email = mutableStateOf("")
     var password = mutableStateOf("")
+    var confirmPassword = mutableStateOf("")
+    var businessName = mutableStateOf("")
+    var phone = mutableStateOf("")
+    var address = mutableStateOf("")
     var isSignUpMode = mutableStateOf(false)
 
     // Staff login fields
@@ -100,16 +103,26 @@ class AuthViewModel(
         val emailVal = email.value.trim()
         val passVal = password.value.trim()
 
-        if (emailVal.isEmpty() || passVal.isEmpty()) {
-            authError.value = "Please enter both email and password"
-            return
-        }
-
-        authError.value = null
-        isVerifying.value = true
-
         if (isSignUpMode.value) {
-            authManager.signUp(emailVal, passVal) { success, error ->
+            val bName = businessName.value.trim()
+            val phoneVal = phone.value.trim()
+            val addressVal = address.value.trim()
+            val confirmPassVal = confirmPassword.value.trim()
+
+            if (bName.isEmpty() || emailVal.isEmpty() || passVal.isEmpty() || confirmPassVal.isEmpty()) {
+                authError.value = "Please fill in all required fields"
+                return
+            }
+
+            if (passVal != confirmPassVal) {
+                authError.value = "Passwords do not match"
+                return
+            }
+
+            authError.value = null
+            isVerifying.value = true
+
+            authManager.signUp(emailVal, passVal, bName, phoneVal, addressVal) { success, error ->
                 isVerifying.value = false
                 if (success) {
                     onSuccess()
@@ -118,6 +131,14 @@ class AuthViewModel(
                 }
             }
         } else {
+            if (emailVal.isEmpty() || passVal.isEmpty()) {
+                authError.value = "Please enter both email and password"
+                return
+            }
+
+            authError.value = null
+            isVerifying.value = true
+
             authManager.signIn(emailVal, passVal) { success, error ->
                 isVerifying.value = false
                 if (success) {
@@ -127,19 +148,6 @@ class AuthViewModel(
                 }
             }
         }
-    }
-
-    fun signInWithGoogle(credential: AuthCredential, onSuccess: () -> Unit) {
-        isVerifying.value = true
-        FirebaseAuth.getInstance().signInWithCredential(credential)
-            .addOnCompleteListener { task ->
-                isVerifying.value = false
-                if (task.isSuccessful) {
-                    onSuccess()
-                } else {
-                    authError.value = task.exception?.message ?: "Sign-in failed"
-                }
-            }
     }
 
     fun loginStaff(onSuccess: () -> Unit) {
@@ -154,23 +162,18 @@ class AuthViewModel(
         authError.value = null
         isVerifying.value = true
 
-        viewModelScope.launch {
-            val staff = staffRepository.getStaffByUsername(usernameVal)
+        authManager.loginAsStaff(usernameVal, passwordVal) { success, error ->
             isVerifying.value = false
-
-            if (staff != null && staff.password == passwordVal && !staff.isDisabled) {
-                authManager.loginAsStaff(staff.username, staff.name, staff.adminId)
+            if (success) {
                 onSuccess()
-            } else if (staff?.isDisabled == true) {
-                authError.value = "Account disabled"
             } else {
-                authError.value = "Invalid username or password"
+                authError.value = error ?: "Invalid username or password"
             }
         }
     }
 
     fun logout(context: Context) {
-        authManager.logout()
+        authManager.logout(viewModelScope)
         // Force restart to clear all in-memory state and activity-scoped ViewModels
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -180,10 +183,16 @@ class AuthViewModel(
 
 // --- 2. BUSINESS SETUP VIEWMODEL ---
 class BusinessSetupViewModel(
-    private val repository: CloudRepository
+    private val repository: CloudRepository,
+    private val localRepository: BusinessProfileRepository
 ) : ViewModel() {
-    val profile: StateFlow<BusinessProfile?> = repository.profile
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val profile: StateFlow<BusinessProfile?> = combine(
+        localRepository.profile,
+        repository.profile
+    ) { local, cloud ->
+        if (local != null && local.name.isNotEmpty()) local
+        else cloud
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     var businessName = mutableStateOf("")
     var address = mutableStateOf("")
@@ -192,6 +201,21 @@ class BusinessSetupViewModel(
     var selectedCurrency = mutableStateOf("Rs.")
     var footerMessage = mutableStateOf("Thank You! Visit Again 🙏")
     var setupError = mutableStateOf<String?>(null)
+
+    init {
+        viewModelScope.launch {
+            localRepository.profile.collect { bp ->
+                if (bp != null && bp.name.isNotEmpty()) {
+                    businessName.value = bp.name
+                    address.value = bp.address
+                    phone.value = bp.phone
+                    gstNumber.value = bp.gstNumber ?: ""
+                    selectedCurrency.value = bp.currency
+                    footerMessage.value = bp.footerMessage
+                }
+            }
+        }
+    }
 
     fun saveBusinessProfile(onSuccess: () -> Unit) {
         val name = businessName.value.trim()
@@ -213,7 +237,13 @@ class BusinessSetupViewModel(
                 footerMessage = footerMessage.value,
                 setupCompleted = true
             )
-            repository.saveProfile(bp)
+            localRepository.saveProfile(bp)
+            try {
+                repository.saveProfile(bp)
+                OptixApplication.instance.authManager.setSetupCompleted(true)
+            } catch (e: Exception) {
+                // Ignore cloud sync error
+            }
             onSuccess()
         }
     }
@@ -236,6 +266,17 @@ class BillingViewModel(
 
     val categories: StateFlow<List<Category>> = categoryRepository.allCategories
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refresh(context: Context) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            com.example.services.SyncManager.getInstance(context).performSync()
+            _isRefreshing.value = false
+        }
+    }
 
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
@@ -260,8 +301,8 @@ class BillingViewModel(
     var lastPrintedReceipt = mutableStateOf<String?>(null)
     var showReceiptPreview = mutableStateOf(false)
     var isPreparingOrder = mutableStateOf(false)
-    var currentTokenNum = mutableStateOf("001")
-    var paymentMethod = mutableStateOf("Cash")
+    var currentTokenNum = mutableStateOf("LOCAL-001")
+    var paymentMethod = mutableStateOf("CASH")
 
     private val _isLimitReached = MutableStateFlow(false)
     val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
@@ -407,8 +448,10 @@ class BillingViewModel(
             .putInt("current_token", token)
             .apply()
             
-        currentTokenNum.value = String.format(Locale.US, "%03d", token)
-        return currentTokenNum.value
+        val formatted = String.format(Locale.US, "%03d", token)
+        val finalToken = "LOCAL-$formatted"
+        currentTokenNum.value = finalToken
+        return finalToken
     }
 
     fun updateCurrentTokenState(context: Context) {
@@ -489,18 +532,28 @@ class BillingViewModel(
                 invoiceNumber = invoiceNum
             )
             
-            orderRepository.insert(order)
+            android.util.Log.d("OPTIX_SYNC", "[1. ORDER CREATED] Order ID: ${order.id}, Temp Token: $tokenNum, Invoice: $invoiceNum")
+            var finalTokenNum = tokenNum
+            try {
+                android.util.Log.d("OPTIX_SYNC", "[2. UPLOADING ORDER] Sending to NestJS API...")
+                val serverToken = repository.insertOrder(order)
+                if (serverToken.isNotEmpty() && serverToken != tokenNum) {
+                    android.util.Log.d("OPTIX_SYNC", "[3. SERVER TOKEN RECEIVED] Official Token: $serverToken (replaces $tokenNum)")
+                    finalTokenNum = serverToken
+                    val updatedOrder = order.copy(tokenNumber = serverToken, isSynced = true)
+                    orderRepository.insert(updatedOrder)
+                    currentTokenNum.value = serverToken
+                } else {
+                    android.util.Log.d("OPTIX_SYNC", "[3. SERVER TOKEN RECEIVED] Saved online with token: $serverToken")
+                    orderRepository.insert(order.copy(isSynced = true))
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("OPTIX_SYNC", "[NETWORK OFF - SAVED OFFLINE] Saved order ${order.id} to Room with isSynced=false. Err: ${e.message}")
+                orderRepository.insert(order.copy(isSynced = false))
+            }
+
             val updatedProfile = profile.copy(dailyBillCount = profile.dailyBillCount + 1)
             repository.saveProfile(updatedProfile)
-
-            launch(Dispatchers.IO) {
-                try {
-                    repository.insertOrder(order)
-                    repository.saveProfile(updatedProfile)
-                } catch (e: Exception) {
-                    Log.e("BillingViewModel", "Cloud sync failed: ${e.message}")
-                }
-            }
 
             if (shouldPrint) {
                 val activeQr = qrRepository.getActiveQrSync()
@@ -508,7 +561,7 @@ class BillingViewModel(
 
                 printerManager.printReceipt(
                     profile = profile,
-                    tokenNumber = tokenNum,
+                    tokenNumber = finalTokenNum,
                     invoiceNumber = invoiceNum,
                     items = orderItems,
                     subtotal = currentSubtotal,
@@ -542,10 +595,21 @@ class OrderHistoryViewModel(
     val allOrders: StateFlow<List<BillOrder>> = orderRepository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refresh(context: Context) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            com.example.services.SyncManager.getInstance(context).performSync()
+            _isRefreshing.value = false
+        }
+    }
+
     private val _searchTokenQuery = MutableStateFlow("")
     val searchTokenQuery: StateFlow<String> = _searchTokenQuery.asStateFlow()
 
-    private val _timeFilter = MutableStateFlow("Today")
+    private val _timeFilter = MutableStateFlow("All")
     val timeFilter: StateFlow<String> = _timeFilter.asStateFlow()
 
     private val _sortBy = MutableStateFlow("Newest First")
@@ -650,7 +714,7 @@ class OrderHistoryViewModel(
             matchTime && matchQuery
         }
 
-        when (sort) {
+        val resultList = when (sort) {
             "Newest First" -> list.sortedByDescending { it.timestamp }
             "Oldest First" -> list.sortedBy { it.timestamp }
             "Highest Amount" -> list.sortedByDescending { it.total }
@@ -658,6 +722,8 @@ class OrderHistoryViewModel(
             "Bill Number" -> list.sortedByDescending { it.invoiceNumber }
             else -> list.sortedByDescending { it.timestamp }
         }
+        Log.d("OPTIX_FLOW", "[ROOM ORDER COUNT] Room Total: ${orders.size} | [UI ORDER COUNT] Displayed: ${resultList.size} (Filter: $filter, Sort: $sort)")
+        resultList
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun reprintOrder(order: BillOrder, profile: BusinessProfile) {
@@ -700,6 +766,17 @@ class AnalyticsViewModel(
 ) : ViewModel() {
     val allOrders: StateFlow<List<BillOrder>> = orderRepository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refresh(context: Context) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            com.example.services.SyncManager.getInstance(context).performSync()
+            _isRefreshing.value = false
+        }
+    }
 
     private val _timeFrame = MutableStateFlow("Today")
     val timeFrame: StateFlow<String> = _timeFrame.asStateFlow()
@@ -869,6 +946,17 @@ class ItemsViewModel(
     val categories: StateFlow<List<Category>> = categoryRepository.allCategories
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refresh(context: Context) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            com.example.services.SyncManager.getInstance(context).performSync()
+            _isRefreshing.value = false
+        }
+    }
+
     var searchItemQuery = mutableStateOf("")
     var selectedCategoryFilter = mutableStateOf("All")
 
@@ -907,6 +995,12 @@ class ItemsViewModel(
     }
 
     fun saveItem(selectedItem: BillingItem?, onSuccess: () -> Unit) {
+        val isEditing = selectedItem != null
+        val requiredPerm = if (isEditing) com.example.services.PermissionManager.EDIT_PRODUCTS else com.example.services.PermissionManager.ADD_PRODUCTS
+        if (!com.example.services.PermissionManager.can(requiredPerm)) {
+            return
+        }
+
         val name = itemName.value.trim()
         val price = itemPrice.value.toDoubleOrNull() ?: 0.0
         val catId = itemCategoryId.value
@@ -938,6 +1032,9 @@ class ItemsViewModel(
     }
 
     fun deleteItem(item: BillingItem) {
+        if (!com.example.services.PermissionManager.can(com.example.services.PermissionManager.DELETE_PRODUCTS)) {
+            return
+        }
         viewModelScope.launch {
             itemRepository.delete(item)
             launch(Dispatchers.IO) {
@@ -1024,26 +1121,71 @@ class StaffViewModel(
     private val repository: CloudRepository,
     private val staffRepository: StaffRepository,
     private val authManager: AuthManager,
-    private val profileRepository: BusinessProfileRepository
+    private val profileRepository: BusinessProfileRepository,
+    private val activityLogRepository: StaffActivityLogRepository,
+    private val sessionRepository: StaffSessionRepository,
+    private val notificationRepository: NotificationRepository
 ) : ViewModel() {
-    val allStaff: StateFlow<List<Staff>> = repository.allStaff
+
+    // ─── Data Sources: Room is the single source of truth ───────────────────────
+    val allStaff: StateFlow<List<Staff>> = staffRepository.allStaff
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init {
-        viewModelScope.launch {
-            repository.allStaff.collect { list ->
-                list.forEach { staff ->
-                    staffRepository.insert(staff)
-                }
+    val activityLogs: StateFlow<List<StaffActivityLog>> = activityLogRepository.allLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val sessions: StateFlow<List<StaffSession>> = sessionRepository.allSessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val notifications: StateFlow<List<NotificationEntity>> = notificationRepository.allNotifications
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // ─── Search & Filter State ───────────────────────────────────────────────────
+    val searchQuery = MutableStateFlow("")
+    val selectedRoleFilter = MutableStateFlow("ALL") // ALL, ADMIN, STAFF
+    val selectedStatusFilter = MutableStateFlow("ALL") // ALL, ACTIVE, DISABLED
+
+    val filteredStaff: StateFlow<List<Staff>> = combine(
+        allStaff,
+        searchQuery,
+        selectedRoleFilter,
+        selectedStatusFilter
+    ) { list, query, roleFilter, statusFilter ->
+        list.filter { s ->
+            val matchesQuery = query.isBlank() ||
+                s.name.contains(query, ignoreCase = true) ||
+                s.username.contains(query, ignoreCase = true)
+            val matchesRole = when (roleFilter.uppercase()) {
+                "ADMIN" -> s.role.equals("admin", ignoreCase = true)
+                "STAFF" -> s.role.equals("staff", ignoreCase = true)
+                else -> true
             }
+            val matchesStatus = when (statusFilter.uppercase()) {
+                "ACTIVE" -> !s.isDisabled
+                "DISABLED" -> s.isDisabled
+                else -> true
+            }
+            matchesQuery && matchesRole && matchesStatus
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun refresh(context: Context) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            com.example.services.SyncManager.getInstance(context).performSync()
+            _isRefreshing.value = false
         }
     }
 
+    // Form fields
     var staffName = mutableStateOf("")
     var password = mutableStateOf("")
     var staffRole = mutableStateOf("staff")
     var editingStaff = mutableStateOf<Staff?>(null)
-    var staffUsername = mutableStateOf("") // Changed from generatedUsername to editable
+    var staffUsername = mutableStateOf("")
 
     // Permissions
     var canBillWeightBased = mutableStateOf(true)
@@ -1054,7 +1196,7 @@ class StaffViewModel(
     fun startEditing(staff: Staff) {
         editingStaff.value = staff
         staffName.value = staff.name
-        password.value = staff.password
+        password.value = "" // Never pre-fill password
         staffRole.value = staff.role
         staffUsername.value = staff.username.split("@").firstOrNull() ?: staff.username
         canBillWeightBased.value = staff.canBillWeightBased
@@ -1076,25 +1218,34 @@ class StaffViewModel(
     }
 
     fun saveStaff(onSuccess: () -> Unit) {
-        val userRaw = staffUsername.value.trim().lowercase().replace(" ", "")
-        val pass = password.value.trim()
-        val name = staffName.value.trim() // Still keep name for display, but user wants to focus on username
-
-        if (userRaw.isEmpty() || pass.isEmpty()) {
+        val current = editingStaff.value
+        val requiredPerm = if (current != null) com.example.services.PermissionManager.EDIT_STAFF else com.example.services.PermissionManager.ADD_STAFF
+        if (!com.example.services.PermissionManager.can(requiredPerm)) {
             return
         }
 
+        val userRaw = staffUsername.value.trim().lowercase().replace(" ", "")
+        val pass = password.value.trim()
+        val name = staffName.value.trim()
+
+        if (userRaw.isEmpty()) return
+
         val adminId = authManager.userId.value ?: ""
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val profile = profileRepository.getProfileSync()
             val bizName = profile?.name?.trim()?.lowercase()?.replace(" ", "") ?: "optix"
-            
-            // Logic: if they enter "staff1", we make it "staff1@bizname"
             val fullUsername = if (userRaw.contains("@")) userRaw else "$userRaw@$bizName"
 
-            val current = editingStaff.value
             val staffId = current?.id ?: UUID.randomUUID().toString()
+
+            // Build permissions list from boolean flags
+            val permsList = mutableListOf<String>()
+            if (canBillWeightBased.value) permsList.add("WEIGHT_BILLING")
+            if (canEditWeight.value) permsList.add("EDIT_WEIGHT")
+            if (canEnterAmount.value) permsList.add("ENTER_AMOUNT")
+            if (canChangeProductPrice.value) permsList.add("CHANGE_PRICE")
+
             val staff = Staff(
                 id = staffId,
                 name = if (name.isEmpty()) userRaw else name,
@@ -1102,24 +1253,185 @@ class StaffViewModel(
                 password = pass,
                 role = staffRole.value,
                 adminId = adminId,
+                businessId = "",
+                permissionsJson = org.json.JSONArray(permsList).toString(),
                 canBillWeightBased = canBillWeightBased.value,
                 canEditWeight = canEditWeight.value,
                 canEnterAmount = canEnterAmount.value,
                 canChangeProductPrice = canChangeProductPrice.value
             )
-            
+
+            // 1. Write to Room immediately (offline-first)
             staffRepository.insert(staff)
-            launch(Dispatchers.IO) { try { repository.insertStaff(staff) } catch (e: Exception) {} }
-            
-            clearFields()
-            onSuccess()
+
+            // 2. Push to cloud in background
+            try {
+                repository.insertStaff(staff)
+                Log.d("OPTIX_FLOW", "[SAVE STAFF] Cloud sync done for: ${staff.username}")
+            } catch (e: Exception) {
+                Log.e("OPTIX_FLOW", "[SAVE STAFF ERR] ${e.message}")
+            }
+
+            withContext(Dispatchers.Main) {
+                clearFields()
+                onSuccess()
+            }
         }
     }
 
     fun deleteStaff(staff: Staff) {
-        viewModelScope.launch {
-            staffRepository.delete(staff)
-            launch(Dispatchers.IO) { try { repository.deleteStaff(staff.id) } catch (e: Exception) {} }
+        if (!com.example.services.PermissionManager.can(com.example.services.PermissionManager.DELETE_STAFF)) {
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. Remove from Room immediately
+            staffRepository.deleteById(staff.id)
+            // 2. Remove from cloud in background
+            try { repository.deleteStaff(staff.id) } catch (e: Exception) {}
+        }
+    }
+
+    fun disableStaff(staff: Staff) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. Update Room immediately
+            staffRepository.setDisabled(staff.id, true)
+            // 2. Push to cloud
+            try { repository.disableStaff(staff.id) } catch (e: Exception) {}
+        }
+    }
+
+    fun enableStaff(staff: Staff) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. Update Room immediately
+            staffRepository.setDisabled(staff.id, false)
+            // 2. Push to cloud
+            try { repository.enableStaff(staff.id) } catch (e: Exception) {}
+        }
+    }
+
+    fun updatePermissions(staffId: String) {
+        val permsList = mutableListOf<String>()
+        if (canBillWeightBased.value) permsList.add("WEIGHT_BILLING")
+        if (canEditWeight.value) permsList.add("EDIT_WEIGHT")
+        if (canEnterAmount.value) permsList.add("ENTER_AMOUNT")
+        if (canChangeProductPrice.value) permsList.add("CHANGE_PRICE")
+
+        viewModelScope.launch(Dispatchers.IO) {
+            // 1. Update Room immediately
+            staffRepository.updatePermissionsJson(staffId, org.json.JSONArray(permsList).toString())
+            // 2. Push to cloud
+            try { repository.updateStaffPermissions(staffId, permsList) } catch (e: Exception) {}
+        }
+    }
+
+    // ─── Milestone 2: Enterprise Permission Matrix State & Methods ─────────────
+    val activePermissions = MutableStateFlow<Set<String>>(emptySet())
+
+    fun loadPermissionsForStaff(staff: Staff) {
+        val permsSet = mutableSetOf<String>()
+        try {
+            val arr = org.json.JSONArray(staff.permissionsJson)
+            for (i in 0 until arr.length()) permsSet.add(arr.optString(i))
+        } catch (e: Exception) {}
+        if (staff.canBillWeightBased) permsSet.add("WEIGHT_BILLING")
+        if (staff.canEditWeight) permsSet.add("EDIT_WEIGHT")
+        if (staff.canEnterAmount) permsSet.add("ENTER_AMOUNT")
+        if (staff.canChangeProductPrice) permsSet.add("CHANGE_PRICE")
+        activePermissions.value = permsSet
+    }
+
+    fun togglePermissionAction(action: String) {
+        val current = activePermissions.value.toMutableSet()
+        if (current.contains(action)) {
+            current.remove(action)
+        } else {
+            current.add(action)
+        }
+        activePermissions.value = current
+    }
+
+    fun saveFullPermissionMatrix(staff: Staff, onSuccess: () -> Unit) {
+        if (!com.example.services.PermissionManager.can(com.example.services.PermissionManager.MANAGE_PERMISSIONS)) {
+            return
+        }
+        val permsList = activePermissions.value.toList()
+        val permJson = org.json.JSONArray(permsList).toString()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = staff.copy(
+                permissionsJson = permJson,
+                canBillWeightBased = permsList.contains("WEIGHT_BILLING") || permsList.contains("CREATE_BILLS"),
+                canEditWeight = permsList.contains("EDIT_WEIGHT") || permsList.contains("EDIT_BILLS"),
+                canEnterAmount = permsList.contains("ENTER_AMOUNT") || permsList.contains("APPLY_DISCOUNTS"),
+                canChangeProductPrice = permsList.contains("CHANGE_PRICE")
+            )
+            // 1. Save Room
+            staffRepository.insert(updated)
+            // 2. Send to backend & emit WebSocket
+            try {
+                repository.updateStaffPermissions(staff.id, permsList)
+                Log.d("OPTIX_FLOW", "[PERMISSIONS SAVED] Updated matrix for ${staff.name}: $permsList")
+            } catch (e: Exception) {
+                Log.e("OPTIX_FLOW", "[PERMISSIONS SAVE ERR] ${e.message}")
+            }
+            withContext(Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    fun updateStaffProfile(
+        staff: Staff,
+        newName: String,
+        newRole: String,
+        newPhone: String,
+        newEmail: String,
+        newPassword: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = staff.copy(
+                name = newName.trim(),
+                role = newRole,
+                phone = newPhone.trim().ifEmpty { null },
+                email = newEmail.trim().ifEmpty { null },
+                password = if (newPassword.isNotBlank()) newPassword.trim() else staff.password
+            )
+            // 1. Update Room
+            staffRepository.insert(updated)
+            // 2. Push Cloud
+            try {
+                repository.insertStaff(updated)
+                Log.d("OPTIX_FLOW", "[PROFILE UPDATED] Saved changes for ${updated.name}")
+            } catch (e: Exception) {
+                Log.e("OPTIX_FLOW", "[PROFILE UPDATE ERR] ${e.message}")
+            }
+            withContext(Dispatchers.Main) {
+                onSuccess()
+            }
+        }
+    }
+
+    // ─── Milestone 3: Operational Intelligence Handlers ─────────────────────────
+
+    fun terminateRemoteSession(sessionId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            sessionRepository.closeSession(sessionId)
+            try {
+                repository.terminateStaffSession(sessionId)
+                Log.d("OPTIX_FLOW", "[REMOTE SESSION TERMINATED] Terminated session: $sessionId")
+            } catch (e: Exception) {
+                Log.e("OPTIX_FLOW", "[SESSION TERMINATE ERR] ${e.message}")
+            }
+        }
+    }
+
+    fun markAllNotificationsRead() {
+        viewModelScope.launch(Dispatchers.IO) {
+            notificationRepository.markAllRead()
+            try {
+                repository.markNotificationsRead()
+            } catch (e: Exception) {}
         }
     }
 }
@@ -1198,8 +1510,13 @@ class SettingsViewModel(
     // --- Navigation Persistence ---
     var currentTab = mutableStateOf("billing")
 
-    val profile: StateFlow<BusinessProfile?> = repository.profile
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val profile: StateFlow<BusinessProfile?> = combine(
+        profileRepository.profile,
+        repository.profile
+    ) { local, cloud ->
+        if (local != null && local.name.isNotEmpty()) local
+        else cloud
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val allQrs: StateFlow<List<PaymentQrEntity>> = qrRepository.allQrs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -1257,6 +1574,13 @@ class SettingsViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            profile.collect { bp ->
+                if (bp != null) {
+                    initProfileForm(bp)
+                }
+            }
+        }
     }
 
     fun initProfileForm(bp: BusinessProfile) {
@@ -1288,6 +1612,7 @@ class SettingsViewModel(
     fun saveProfileSettings() {
         viewModelScope.launch {
             val bp = profile.value ?: BusinessProfile()
+            val cleanLogo = if (bp.logoPath?.contains("/data/user/0/") == true) null else bp.logoPath
             val updated = bp.copy(
                 name = profileName.value.trim(),
                 address = profileAddress.value.trim(),
@@ -1296,7 +1621,8 @@ class SettingsViewModel(
                 currency = profileCurrency.value,
                 footerMessage = profileFooter.value.trim(),
                 openingTime = openingTime.value.trim(),
-                closingTime = closingTime.value.trim()
+                closingTime = closingTime.value.trim(),
+                logoPath = cleanLogo
             )
             profileRepository.saveProfile(updated)
             launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
@@ -1306,6 +1632,7 @@ class SettingsViewModel(
     fun saveReceiptSettings(onComplete: () -> Unit) {
         viewModelScope.launch {
             val bp = profile.value ?: BusinessProfile()
+            val cleanLogo = if (bp.logoPath?.contains("/data/user/0/") == true) null else bp.logoPath
             val updated = bp.copy(
                 showBusinessName = showBusinessName.value,
                 showAddress = showAddress.value,
@@ -1319,11 +1646,61 @@ class SettingsViewModel(
                 taxPercentage = taxPercentage.value.toDoubleOrNull() ?: 0.0,
                 qrEnabled = qrEnabled.value,
                 showVisitAgain = showVisitAgain.value,
-                showLogo = showLogo.value
+                showLogo = showLogo.value,
+                logoPath = cleanLogo
             )
+            Log.d("OPTIX_FLOW", "[SAVE RECEIPT SETTINGS] showLogo: ${showLogo.value}, logoPath: $cleanLogo")
             profileRepository.saveProfile(updated)
-            launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
+            launch(Dispatchers.IO) {
+                try {
+                    repository.saveProfile(updated)
+                    Log.d("OPTIX_FLOW", "[SAVE RECEIPT SETTINGS CLOUD SUCCESS]")
+                } catch (e: Exception) {
+                    Log.e("OPTIX_FLOW", "[SAVE RECEIPT SETTINGS CLOUD ERR] ${e.message}")
+                }
+            }
             onComplete()
+        }
+    }
+
+    fun saveReceiptToggle(key: String, value: Boolean) {
+        viewModelScope.launch {
+            when (key) {
+                "showLogo" -> showLogo.value = value
+                "showBusinessName" -> showBusinessName.value = value
+                "showAddress" -> showAddress.value = value
+                "showPhone" -> showPhone.value = value
+                "showGst" -> showGst.value = value
+                "showDateTime" -> showDateTime.value = value
+                "showOrderNumber" -> showOrderNumber.value = value
+                "showCashierName" -> showCashierName.value = value
+                "showDiscounts" -> showDiscounts.value = value
+                "showTaxes" -> showTaxes.value = value
+                "qrEnabled" -> qrEnabled.value = value
+                "showVisitAgain" -> showVisitAgain.value = value
+            }
+            val bp = profile.value ?: BusinessProfile()
+            val updated = when (key) {
+                "showLogo" -> bp.copy(showLogo = value)
+                "showBusinessName" -> bp.copy(showBusinessName = value)
+                "showAddress" -> bp.copy(showAddress = value)
+                "showPhone" -> bp.copy(showPhone = value)
+                "showGst" -> bp.copy(showGst = value)
+                "showDateTime" -> bp.copy(showDateTime = value)
+                "showOrderNumber" -> bp.copy(showOrderNumber = value)
+                "showCashierName" -> bp.copy(showCashierName = value)
+                "showDiscounts" -> bp.copy(showDiscounts = value)
+                "showTaxes" -> bp.copy(showTaxes = value)
+                "qrEnabled" -> bp.copy(qrEnabled = value)
+                "showVisitAgain" -> bp.copy(showVisitAgain = value)
+                else -> bp
+            }
+            profileRepository.saveProfile(updated)
+            launch(Dispatchers.IO) {
+                try {
+                    repository.saveReceiptToggle(key, value)
+                } catch (e: Exception) {}
+            }
         }
     }
 
@@ -1442,28 +1819,56 @@ class SettingsViewModel(
     fun uploadLogo(uri: android.net.Uri, context: Context) {
         viewModelScope.launch {
             try {
-                // Use a timestamp to avoid Coil cache issues
                 val fileName = "logo_${System.currentTimeMillis()}.png"
-                val localPath = saveImageToInternalStorage(uri, context, "business", fileName)
+                Log.d("OPTIX_FLOW", "[LOCAL FILE] Logo URI: $uri, FileName: $fileName")
+                Log.d("OPTIX_FLOW", "[UPLOAD START] Category: business, File: $fileName")
                 
+                val cloudUrl = repository.uploadImage(uri, context, fileName, "business")
+                
+                if (cloudUrl.isEmpty()) {
+                    Log.e("OPTIX_FLOW", "[UPLOAD FAILED] Could not upload logo to cloud.")
+                    Toast.makeText(context, "Logo upload failed. Please try again.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                
+                Log.d("OPTIX_FLOW", "[UPLOAD RESPONSE] HTTP 201 Success")
+                Log.d("OPTIX_FLOW", "[CLOUD URL] $cloudUrl")
+                
+                coil.Coil.imageLoader(context).diskCache?.clear()
+                coil.Coil.imageLoader(context).memoryCache?.clear()
+
                 val bp = profile.value ?: BusinessProfile()
-                val updated = bp.copy(logoPath = localPath, showLogo = true)
+                val updated = bp.copy(logoPath = cloudUrl, showLogo = true)
                 
+                Log.d("OPTIX_FLOW", "[ROOM SAVE] Saving logoPath: ${updated.logoPath}")
                 profileRepository.saveProfile(updated)
-                launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
+                
+                Log.d("OPTIX_FLOW", "[BUSINESS PROFILE SAVE] Sending updated profile with CLOUD URL to PostgreSQL...")
+                launch(Dispatchers.IO) { 
+                    try { 
+                        repository.saveProfile(updated) 
+                        Log.d("OPTIX_FLOW", "[SYNC PAYLOAD] Business Profile synced to Cloud")
+                    } catch (e: Exception) {
+                        Log.e("OPTIX_FLOW", "[BUSINESS PROFILE SAVE ERR] ${e.message}")
+                    } 
+                }
                 
                 showLogo.value = true
-                Toast.makeText(context, "Logo updated", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Logo uploaded & synced successfully!", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "Failed to upload: ${e.message}", Toast.LENGTH_SHORT).show()
+                Log.e("OPTIX_FLOW", "[UPLOAD LOGO ERROR] ${e.message}")
+                Toast.makeText(context, "Failed to update logo: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    fun removeLogo() {
+    fun removeLogo(context: Context) {
         viewModelScope.launch {
+            coil.Coil.imageLoader(context).diskCache?.clear()
+            coil.Coil.imageLoader(context).memoryCache?.clear()
             val bp = profile.value ?: return@launch
             val updated = bp.copy(logoPath = null, showLogo = false)
+            showLogo.value = false
             profileRepository.saveProfile(updated)
             launch(Dispatchers.IO) { try { repository.saveProfile(updated) } catch (e: Exception) {} }
         }
@@ -1478,21 +1883,47 @@ class SettingsViewModel(
 
         viewModelScope.launch {
             try {
-                val uuid = UUID.randomUUID().toString()
-                val fileName = "$uuid.png"
-                val localPath = saveImageToInternalStorage(uri, context, "payment_qr", fileName)
+                val fileName = "qr_${System.currentTimeMillis()}.png"
+                Log.d("OPTIX_FLOW", "[LOCAL FILE] QR URI: $uri, FileName: $fileName")
+                Log.d("OPTIX_FLOW", "[UPLOAD START] Category: business, File: $fileName")
+                
+                val cloudUrl = repository.uploadImage(uri, context, fileName, "business")
+                
+                if (cloudUrl.isEmpty()) {
+                    Log.e("OPTIX_FLOW", "[UPLOAD FAILED] Could not upload Payment QR to cloud.")
+                    Toast.makeText(context, "QR upload failed. Please try again.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                
+                Log.d("OPTIX_FLOW", "[UPLOAD RESPONSE] HTTP 201 Success")
+                Log.d("OPTIX_FLOW", "[CLOUD URL] $cloudUrl")
                 
                 val qr = PaymentQrEntity(
-                    id = uuid,
+                    id = UUID.randomUUID().toString(),
                     businessId = authManager.userId.value ?: "",
                     name = name,
-                    imagePath = localPath,
+                    imagePath = cloudUrl,
                     isActive = allQrs.value.isEmpty()
                 )
+                
+                Log.d("OPTIX_FLOW", "[ROOM SAVE] Saving PaymentQr imagePath: ${qr.imagePath}")
                 qrRepository.insert(qr)
+                
+                Log.d("OPTIX_FLOW", "[SYNC PAYLOAD] Pushing Payment QR to Cloud...")
+                launch(Dispatchers.IO) {
+                    try { 
+                        repository.postPaymentQr(qr) 
+                        Log.d("OPTIX_FLOW", "[POST QR SUCCESS]")
+                    } catch (e: Exception) { 
+                        Log.e("OPTIX_FLOW", "[POST QR ERR] ${e.message}") 
+                    }
+                }
                 qrAccountName.value = ""
                 onSuccess()
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                Log.e("OPTIX_FLOW", "[SAVE QR ERROR] ${e.message}")
+                Toast.makeText(context, "Failed to save QR: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -1503,6 +1934,17 @@ class SettingsViewModel(
                 val list = qrRepository.allQrs.first()
                 if (list.isNotEmpty()) {
                     qrRepository.setActive(list[0].id)
+                    launch(Dispatchers.IO) {
+                        try { repository.selectPaymentQr(list[0].id) } catch (e: Exception) {}
+                    }
+                }
+            }
+            launch(Dispatchers.IO) {
+                try {
+                    repository.deletePaymentQrCloud(qr.id)
+                    Log.d("OPTIX_FLOW", "[DELETE QR CLOUD] Pushed delete for QR: ${qr.id}")
+                } catch (e: Exception) {
+                    Log.e("OPTIX_FLOW", "[DELETE QR CLOUD ERR] ${e.message}")
                 }
             }
         }
@@ -1511,6 +1953,13 @@ class SettingsViewModel(
     fun setActiveQr(qrId: String) {
         viewModelScope.launch {
             qrRepository.setActive(qrId)
+            launch(Dispatchers.IO) {
+                try {
+                    repository.selectPaymentQr(qrId)
+                } catch (e: Exception) {
+                    Log.e("OPTIX_FLOW", "[SELECT QR ERR] ${e.message}")
+                }
+            }
         }
     }
 
