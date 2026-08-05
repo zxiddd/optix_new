@@ -28,7 +28,16 @@ export class SyncCategoryDto {
   @IsNumber() lastModified: number;
 }
 
+export class SyncPaymentQrDto {
+  @IsString() id: string;
+  @IsString() name: string;
+  @IsString() imageUrl: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsBoolean() isDeleted?: boolean;
+}
+
 export class SyncPushDto {
   @IsArray() @IsOptional() categories?: SyncCategoryDto[];
   @IsArray() @IsOptional() products?: SyncProductDto[];
+  @IsArray() @IsOptional() paymentQrs?: SyncPaymentQrDto[];
 }

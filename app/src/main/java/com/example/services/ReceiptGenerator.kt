@@ -40,14 +40,22 @@ class ReceiptGenerator {
         // 0. Logo
         if (profile.showLogo && profile.logoPath != null) {
             try {
-                val bitmap = BitmapFactory.decodeFile(profile.logoPath)
+                val path = profile.logoPath!!
+                val bitmap = if (path.startsWith("http://") || path.startsWith("https://")) {
+                    val url = java.net.URL(path)
+                    BitmapFactory.decodeStream(url.openStream())
+                } else {
+                    BitmapFactory.decodeFile(path)
+                }
                 if (bitmap != null) {
                     val scaled = scaleBitmap(bitmap, 300) // Optimized for 58mm
                     add(EscPosConstants.ALIGN_CENTER)
                     add(decodeBitmap(scaled))
                     addText("\n")
                 }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.e("ReceiptGenerator", "Logo load error: ${e.message}")
+            }
         }
 
         // 1. Business Header
@@ -159,7 +167,13 @@ class ReceiptGenerator {
         if (profile.qrEnabled && qrImagePath != null) {
             addLine()
             try {
-                val bitmap = BitmapFactory.decodeFile(qrImagePath)
+                val path = qrImagePath
+                val bitmap = if (path.startsWith("http://") || path.startsWith("https://")) {
+                    val url = java.net.URL(path)
+                    BitmapFactory.decodeStream(url.openStream())
+                } else {
+                    BitmapFactory.decodeFile(path)
+                }
                 if (bitmap != null) {
                     val scaled = scaleBitmap(bitmap, 300)
                     add(EscPosConstants.ALIGN_CENTER)
@@ -167,6 +181,7 @@ class ReceiptGenerator {
                     addText("\n")
                 }
             } catch (e: Exception) {
+                android.util.Log.e("ReceiptGenerator", "QR load error: ${e.message}")
                 addText("[QR ERROR]\n")
             }
         }

@@ -1,0 +1,114 @@
+[
+  {
+    "section": "1. Infrastructure",
+    "test": "Docker Containers & PostgreSQL Status",
+    "status": "PASS",
+    "details": "optix-backend-staging\tUp 3 minutes (healthy)\noptix-postgres-staging\tUp 30 hours (healthy)\noptix-redis-staging\tUp 30 hours (healthy)\n",
+    "latency_ms": 6028.62
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signup (Business A)",
+    "status": "PASS",
+    "details": "Created User ID: d879ab06-c579-46dc-8b35-d13b1a6d37f2",
+    "latency_ms": 1311.7
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signup (Business B)",
+    "status": "PASS",
+    "details": "Created User ID: 5a3c2e4c-035e-4533-915d-b0194e02a201",
+    "latency_ms": 1078.41
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Owner Signin",
+    "status": "PASS",
+    "details": "Owner authentication successful",
+    "latency_ms": 998.64
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Wrong Password Rejection",
+    "status": "PASS",
+    "details": "Forbidden/Unauthorized correctly returned (403)",
+    "latency_ms": 951.22
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Duplicate Email Rejection",
+    "status": "PASS",
+    "details": "Duplicate email rejected with status 500",
+    "latency_ms": 724.09
+  },
+  {
+    "section": "2. Authentication",
+    "test": "Invalid JWT Verification",
+    "status": "PASS",
+    "details": "Invalid token rejected with status 401",
+    "latency_ms": 876.84
+  },
+  {
+    "section": "5. Categories",
+    "test": "Create Category",
+    "status": "PASS",
+    "details": "Category created ID: 32178a7b-d38a-464c-bea5-87f48e1d0133",
+    "latency_ms": 658.88
+  },
+  {
+    "section": "3. Business Isolation",
+    "test": "Category Tenant Isolation",
+    "status": "PASS",
+    "details": "Business B cannot access Business A categories (100% Isolated)",
+    "latency_ms": 612.22
+  },
+  {
+    "section": "4. Product APIs",
+    "test": "Create Product",
+    "status": "PASS",
+    "details": "Product created ID: 3a99ffbe-bb3d-47cb-8f6e-6e3869f92663",
+    "latency_ms": 746.79
+  },
+  {
+    "section": "3. Business Isolation",
+    "test": "Product Tenant Isolation",
+    "status": "PASS",
+    "details": "Business B cannot access Business A products (100% Isolated)",
+    "latency_ms": 618.05
+  },
+  {
+    "section": "4. Product APIs",
+    "test": "Soft Delete Product",
+    "status": "PASS",
+    "details": "Product successfully soft deleted",
+    "latency_ms": 1387.98
+  },
+  {
+    "section": "6. Billing APIs",
+    "test": "Create Order",
+    "status": "PASS",
+    "details": "Order created ID: e8767b9c-de12-4267-a1ca-d47fe5e372fa",
+    "latency_ms": 664.93
+  },
+  {
+    "section": "3. Business Isolation",
+    "test": "Order Tenant Isolation",
+    "status": "PASS",
+    "details": "Business B cannot access Business A orders (100% Isolated)",
+    "latency_ms": 1020.09
+  },
+  {
+    "section": "8. Staff Module",
+    "test": "Create Staff Account",
+    "status": "PASS",
+    "details": "Staff created username: staff_1785784977",
+    "latency_ms": 938.72
+  },
+  {
+    "section": "14. Sync Engine",
+    "test": "SQLite Pull Delta Endpoint",
+    "status": "PASS",
+    "details": "Sync pull returned delta payload for Room DB",
+    "latency_ms": 689.85
+  }
+]

@@ -25,9 +25,16 @@ export class SyncController {
   @ApiOperation({ summary: 'Download cloud changes since last sync' })
   pull(
     @GetCurrentUser('businessId') businessId: string,
-    @Query('lastSync') lastSync: string,
+    @Query('lastSync') lastSync?: string,
+    @Query('since') since?: string,
   ) {
-    const timestamp = parseInt(lastSync) || 0;
+    const timestamp = parseInt(since || lastSync || '0') || 0;
     return this.syncService.pull(businessId, timestamp);
+  }
+
+  @Get('full-dump')
+  @ApiOperation({ summary: 'Download complete business data for local cache hydration' })
+  fullDump(@GetCurrentUser('businessId') businessId: string) {
+    return this.syncService.fullDump(businessId);
   }
 }

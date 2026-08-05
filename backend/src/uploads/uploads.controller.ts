@@ -1,16 +1,18 @@
-import { Controller, Post, UseInterceptors, UploadedFile, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Param, Res, UseInterceptors, UploadedFile, UseGuards, BadRequestException, NotFoundException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { AtGuard } from '../auth/guards';
+import { Public, GetCurrentUser } from '../auth/decorators';
 import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { GetCurrentUser } from '../auth/decorators';
+import { extname, join } from 'path';
+import { Response } from 'express';
+import { existsSync } from 'fs';
 
 @ApiTags('Uploads')
-@ApiBearerAuth()
-@UseGuards(AtGuard)
 @Controller('uploads')
 export class UploadsController {
+  @UseGuards(AtGuard)
+  @ApiBearerAuth()
   @Post()
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -43,10 +45,18 @@ export class UploadsController {
     if (!file) {
       throw new BadRequestException('File is required');
     }
-    // In a real SaaS, you'd store this in a folder scoped by businessId
-    // and potentially use S3. For this VPS migration, we use local disk.
     return {
       url: `/api/v1/uploads/view/${file.filename}`,
     };
+  }
+
+  @Public()
+  @Get('view/:filename')
+  viewFile(@Param('filename') filename: string, @Res() res: Response) {
+    const filePath = join(process.cwd(), 'uploads', filename);
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('File not found');
+    }
+    return res.sendFile(filePath);
   }
 }

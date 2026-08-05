@@ -21,9 +21,25 @@ export class AuthController {
   @Public()
   @Post('local/signin')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Login for admin/owner' })
+  @ApiOperation({ summary: 'Login for business owner/admin' })
   signinLocal(@Body() dto: LoginDto) {
     return this.authService.signinLocal(dto);
+  }
+
+  @Public()
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Google OAuth login for business owner' })
+  googleSignin(@Body() dto: { email: string; name?: string; googleId?: string }) {
+    return this.authService.googleSignin(dto);
+  }
+
+  @Public()
+  @Post('staff/signin')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login for staff/cashier' })
+  staffSignin(@Body() dto: { username: string; password?: string }) {
+    return this.authService.staffSignin(dto);
   }
 
   @UseGuards(AtGuard)
