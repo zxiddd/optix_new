@@ -953,3 +953,127 @@ Then implement.
 
 Never guess.
 ================================================================================
+Never implement a large feature in one milestone.
+
+Every feature must be split into independently testable milestones.
+
+Each milestone must:
+
+Compile
+
+Pass regression
+
+Be deployable
+
+Be rollback-safe
+
+Only then continue.
+Before every milestone:
+
+git add .
+git commit
+
+After every successful milestone:
+
+git tag
+
+No milestone may begin without a recovery point.
+Never decrease Room database version.
+
+Every schema modification requires:
+
+Migration
+
+Verification
+
+Restart
+
+Upgrade
+
+Fresh install
+
+Existing install
+
+No destructive migration.
+
+Never rely on uninstalling for production.
+Never modify files that are unrelated.
+
+Before editing:
+
+Explain WHY.
+
+Explain WHICH architecture layer changes.
+
+Explain WHICH features could regress.
+
+Minimize edited files.
+
+Minimize AI context usage.
+
+Avoid rewriting large files unnecessarily.
+Before implementation:
+
+State:
+
+Rollback plan
+
+Affected modules
+
+Recovery plan
+
+Git commit reference
+
+If rollback cannot be performed,
+
+do not start implementation.
+No feature is allowed to break:
+
+Authentication
+
+Billing
+
+Realtime
+
+Offline
+
+WebSockets
+
+Room
+
+Staff
+
+Products
+
+Orders
+
+Business Profile
+
+If any existing feature breaks,
+
+the milestone automatically fails.
+Never say:
+
+Done
+
+Fixed
+
+Implemented
+
+Completed
+
+Unless:
+
+Project builds
+
+Backend builds
+
+Android builds
+
+Physical devices tested
+
+Logs verified
+
+Regression verified
+
+Evidence provided

@@ -2493,6 +2493,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
                             OutlinedTextField(value = viewModel.profileAddress.value, onValueChange = { viewModel.profileAddress.value = it }, label = { Text("Address") })
                             OutlinedTextField(value = viewModel.profilePhone.value, onValueChange = { viewModel.profilePhone.value = it }, label = { Text("Phone") })
                             OutlinedTextField(value = viewModel.profileGst.value, onValueChange = { viewModel.profileGst.value = it }, label = { Text("GST Number") })
+                            Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 4.dp))
+                            Text("Business Timings", color = OrangePrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            OutlinedTextField(value = viewModel.openingTime.value, onValueChange = { viewModel.openingTime.value = it }, label = { Text("Opening Time (e.g. 09:00)") })
+                            OutlinedTextField(value = viewModel.closingTime.value, onValueChange = { viewModel.closingTime.value = it }, label = { Text("Closing Time (e.g. 22:00)") })
+                            OutlinedTextField(value = viewModel.timezone.value, onValueChange = { viewModel.timezone.value = it }, label = { Text("Timezone (e.g. Asia/Riyadh)") })
                         }
                     },
                     confirmButton = {

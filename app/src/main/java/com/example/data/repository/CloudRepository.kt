@@ -213,7 +213,18 @@ class CloudRepository(private val userId: String, private val authToken: String?
             val finalLogoUrl = formatUrl(rLogoUrl)
             Log.d("OPTIX_FLOW", "[FULL DUMP] Raw logoUrl: $rLogoUrl -> Sanitized: $finalLogoUrl")
 
-            if (bName.isNotEmpty() || bObj.has("receiptSettings")) {
+            var bOpeningTime = "09:00"
+            var bClosingTime = "22:00"
+            var bTimezone = "Asia/Riyadh"
+
+            if (bObj.has("settings") && !bObj.isNull("settings")) {
+                val sObj = bObj.getJSONObject("settings")
+                bOpeningTime = sObj.optString("openingTime", "09:00")
+                bClosingTime = sObj.optString("closingTime", "22:00")
+                bTimezone = sObj.optString("timezone", "Asia/Riyadh")
+            }
+
+            if (bName.isNotEmpty() || bObj.has("receiptSettings") || bObj.has("settings")) {
                 val existing = profileRepo.getProfileSync() ?: BusinessProfile()
                 val targetLogo = finalLogoUrl ?: formatUrl(existing.logoPath)
                 Log.d("OPTIX_FLOW", "[ROOM RESTORE] Storing Logo logoPath: $targetLogo, showLogo: $rShowLogo, qrEnabled: $rQrEnabled")
@@ -221,6 +232,9 @@ class CloudRepository(private val userId: String, private val authToken: String?
                     name = if (bName.isNotEmpty()) bName else existing.name,
                     phone = if (bPhone.isNotEmpty()) bPhone else existing.phone,
                     address = if (bAddr.isNotEmpty()) bAddr else existing.address,
+                    openingTime = bOpeningTime,
+                    closingTime = bClosingTime,
+                    timezone = bTimezone,
                     setupCompleted = true,
                     showLogo = rShowLogo,
                     logoPath = targetLogo,
@@ -423,6 +437,9 @@ class CloudRepository(private val userId: String, private val authToken: String?
             currentLast.name == profile.name &&
             currentLast.phone == profile.phone &&
             currentLast.address == profile.address &&
+            currentLast.openingTime == profile.openingTime &&
+            currentLast.closingTime == profile.closingTime &&
+            currentLast.timezone == profile.timezone &&
             currentLast.showLogo == profile.showLogo &&
             currentLast.logoPath == profile.logoPath &&
             currentLast.footerMessage == profile.footerMessage &&
@@ -447,6 +464,9 @@ class CloudRepository(private val userId: String, private val authToken: String?
             put("name", profile.name)
             put("phone", profile.phone)
             put("address", profile.address)
+            put("openingTime", profile.openingTime)
+            put("closingTime", profile.closingTime)
+            put("timezone", profile.timezone)
             put("receiptSettings", JSONObject().apply {
                 put("showLogo", profile.showLogo)
                 val cleanLogo = formatUrl(profile.logoPath)

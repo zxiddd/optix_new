@@ -285,7 +285,10 @@ class RealtimeSyncManager private constructor(context: Context) {
                             val updated = existing.copy(
                                 name = data.optString("name", existing.name),
                                 phone = data.optString("phone", existing.phone),
-                                address = data.optString("address", existing.address)
+                                address = data.optString("address", existing.address),
+                                openingTime = data.optString("openingTime", existing.openingTime),
+                                closingTime = data.optString("closingTime", existing.closingTime),
+                                timezone = data.optString("timezone", existing.timezone)
                             )
                             profileRepo.saveProfile(updated)
                             Log.d("OPTIX_FLOW", "[ROOM UPDATED] business.updated applied live (<200ms)")

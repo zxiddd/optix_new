@@ -120,7 +120,24 @@ export class BusinessService {
       }
     }
 
-    if (data.name || data.address || data.phone || data.email) {
+    if (data.openingTime !== undefined || data.closingTime !== undefined || data.timezone !== undefined) {
+      await this.prisma.businessSettings.upsert({
+        where: { businessId },
+        create: {
+          businessId,
+          openingTime: data.openingTime ?? '09:00',
+          closingTime: data.closingTime ?? '22:00',
+          timezone: data.timezone ?? 'Asia/Riyadh',
+        },
+        update: {
+          ...(data.openingTime !== undefined && { openingTime: data.openingTime }),
+          ...(data.closingTime !== undefined && { closingTime: data.closingTime }),
+          ...(data.timezone !== undefined && { timezone: data.timezone }),
+        },
+      });
+    }
+
+    if (data.name || data.address || data.phone || data.email || data.openingTime || data.closingTime || data.timezone) {
       const updatedBusiness = await this.prisma.business.update({
         where: { id: businessId },
         data: {
@@ -142,6 +159,9 @@ export class BusinessService {
         address: updatedBusiness.address,
         phone: updatedBusiness.phone,
         email: updatedBusiness.email,
+        openingTime: updatedBusiness.settings?.openingTime ?? '09:00',
+        closingTime: updatedBusiness.settings?.closingTime ?? '22:00',
+        timezone: updatedBusiness.settings?.timezone ?? 'Asia/Riyadh',
       }, sender);
 
       return updatedBusiness;

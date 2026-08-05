@@ -1545,8 +1545,9 @@ class SettingsViewModel(
     var profileGst = mutableStateOf("")
     var profileCurrency = mutableStateOf("₹")
     var profileFooter = mutableStateOf("")
-    var openingTime = mutableStateOf("08:00")
+    var openingTime = mutableStateOf("09:00")
     var closingTime = mutableStateOf("22:00")
+    var timezone = mutableStateOf("Asia/Riyadh")
 
     // Receipt Customization States (Offline-First Branding)
     var showBusinessName = mutableStateOf(true)
@@ -1592,6 +1593,7 @@ class SettingsViewModel(
         profileFooter.value = bp.footerMessage
         openingTime.value = bp.openingTime
         closingTime.value = bp.closingTime
+        timezone.value = bp.timezone
         
         showBusinessName.value = bp.showBusinessName
         showAddress.value = bp.showAddress
@@ -1622,6 +1624,7 @@ class SettingsViewModel(
                 footerMessage = profileFooter.value.trim(),
                 openingTime = openingTime.value.trim(),
                 closingTime = closingTime.value.trim(),
+                timezone = timezone.value.trim(),
                 logoPath = cleanLogo
             )
             profileRepository.saveProfile(updated)

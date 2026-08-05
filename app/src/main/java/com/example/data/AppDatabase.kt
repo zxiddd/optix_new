@@ -121,6 +121,12 @@ val MIGRATION_15_16 = object : Migration(15, 16) {
     }
 }
 
+val MIGRATION_16_17 = object : Migration(16, 17) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE business_profile ADD COLUMN timezone TEXT NOT NULL DEFAULT 'Asia/Riyadh'")
+    }
+}
+
 @Database(
     entities = [
         BusinessProfile::class,
@@ -137,7 +143,7 @@ val MIGRATION_15_16 = object : Migration(15, 16) {
         StaffSession::class,
         NotificationEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -166,7 +172,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "zaddy_pos_db"
                 )
-                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
                 .addCallback(AppDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance

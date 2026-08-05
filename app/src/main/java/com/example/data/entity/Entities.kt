@@ -14,8 +14,9 @@ data class BusinessProfile(
     val footerMessage: String = "Thank You! Visit Again 🙏",
     val setupCompleted: Boolean = false,
     val menuSetupCompleted: Boolean = false,
-    val openingTime: String = "08:00",
+    val openingTime: String = "09:00",
     val closingTime: String = "22:00",
+    val timezone: String = "Asia/Riyadh",
     
     // Receipt Customization Flags
     val showBusinessName: Boolean = true,

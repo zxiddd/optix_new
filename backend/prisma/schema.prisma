@@ -127,9 +127,9 @@ model BusinessSettings {
   businessId        String   @unique
   business          Business @relation(fields: [businessId], references: [id])
   currency          String   @default("INR")
-  openingTime       String   @default("08:00")
+  openingTime       String   @default("09:00")
   closingTime       String   @default("22:00")
-  timezone          String   @default("UTC")
+  timezone          String   @default("Asia/Riyadh")
   taxEnabled        Boolean  @default(false)
   taxPercentage     Decimal  @default(0.0) @db.Decimal(10, 2)
 }
