@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: optix-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - optix-network
+
+  redis:
+    image: redis:alpine
+    container_name: optix-cache
+    restart: always
+    ports:
+      - '6379:6379'
+    networks:
+      - optix-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: optix-api
+    restart: always
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      PORT: 3000
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - optix-network
+
+networks:
+  optix-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
