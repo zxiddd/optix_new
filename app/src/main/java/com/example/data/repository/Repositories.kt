@@ -15,6 +15,8 @@ class BusinessProfileRepository(private val dao: BusinessProfileDao) {
 class CategoryRepository(private val dao: CategoryDao) {
     val allCategories: Flow<List<Category>> = dao.getAllCategories()
 
+    suspend fun getAllCategoriesSync(): List<Category> = dao.getAllCategoriesSync()
+
     suspend fun insert(category: Category) = dao.insertCategory(category)
 
     suspend fun update(category: Category) = dao.updateCategory(category)
@@ -24,6 +26,8 @@ class CategoryRepository(private val dao: CategoryDao) {
 
 class BillingItemRepository(private val dao: BillingItemDao) {
     val allItems: Flow<List<BillingItem>> = dao.getAllItems()
+
+    suspend fun getAllItemsSync(): List<BillingItem> = dao.getAllItemsSync()
 
     fun getItemsByCategory(categoryId: String): Flow<List<BillingItem>> {
         return dao.getItemsByCategory(categoryId)

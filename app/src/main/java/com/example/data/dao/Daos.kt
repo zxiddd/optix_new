@@ -52,7 +52,7 @@ interface CategoryDao {
     fun getAllCategories(): Flow<List<Category>>
 
     @Query("SELECT * FROM categories ORDER BY sortOrder")
-    fun getAllCategoriesSync(): List<Category>
+    suspend fun getAllCategoriesSync(): List<Category>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category)

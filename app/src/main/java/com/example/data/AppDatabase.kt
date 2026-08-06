@@ -127,6 +127,12 @@ val MIGRATION_16_17 = object : Migration(16, 17) {
     }
 }
 
+val MIGRATION_17_18 = object : Migration(17, 18) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE business_profile ADD COLUMN lastResetBusinessDate TEXT")
+    }
+}
+
 @Database(
     entities = [
         BusinessProfile::class,
@@ -143,7 +149,7 @@ val MIGRATION_16_17 = object : Migration(16, 17) {
         StaffSession::class,
         NotificationEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -172,7 +178,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "zaddy_pos_db"
                 )
-                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                 .addCallback(AppDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance

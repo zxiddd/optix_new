@@ -503,6 +503,23 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
                     OutlinedTextField(value = viewModel.businessName.value, onValueChange = { viewModel.businessName.value = it }, label = { Text("Business Name") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = viewModel.address.value, onValueChange = { viewModel.address.value = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = viewModel.phone.value, onValueChange = { viewModel.phone.value = it }, label = { Text("Phone") }, modifier = Modifier.fillMaxWidth())
+                    
+                    var currencyExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedTextField(
+                            value = if (viewModel.selectedCurrency.value == "Rs.") "Rupees (Rs.)" else "Saudi Riyal (SAR)",
+                            onValueChange = { },
+                            label = { Text("Currency") },
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = { IconButton(onClick = { currencyExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                        )
+                        DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
+                            DropdownMenuItem(text = { Text("Rupees (Rs.)") }, onClick = { viewModel.selectedCurrency.value = "Rs."; currencyExpanded = false })
+                            DropdownMenuItem(text = { Text("Saudi Riyal (SAR)") }, onClick = { viewModel.selectedCurrency.value = "SAR"; currencyExpanded = false })
+                        }
+                    }
+
                     if (setupError != null) Text(setupError!!, color = Color.Red)
                     Button(
                         onClick = {
@@ -635,7 +652,7 @@ fun BillingMenuSection(viewModel: BillingViewModel, profile: BusinessProfile?, i
 fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessProfile?) {
     val cart by viewModel.cartItems.collectAsState()
     val qty = if (item.pricingType == "FIXED") cart.find { it.itemId == item.id }?.quantity ?: 0 else 0
-    val weightInCart = if (item.pricingType == "WEIGHT_BASED") cart.filter { it.itemId == item.id }.sumOf { it.weight ?: 0.0 } else 0.0
+    val weightInCart = if (item.pricingType == "WEIGHT") cart.filter { it.itemId == item.id }.sumOf { it.weight ?: 0.0 } else 0.0
 
     Card(modifier = Modifier.fillMaxWidth().height(100.dp).clickable { viewModel.addToCart(item) }, colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
         Column(modifier = Modifier.padding(8.dp)) {
@@ -690,7 +707,7 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
                             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(item.itemName, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp, maxLines = 1)
-                                    if (item.pricingType == "WEIGHT_BASED") {
+                                    if (item.pricingType == "WEIGHT") {
                                         Text("${String.format("%.3f", item.weight)} ${item.unit} x ${profile?.currency ?: "Rs."}${item.price.toInt()}", color = OrangePrimary, fontSize = 11.sp)
                                     } else {
                                         Text((profile?.currency ?: "Rs.") + item.price.toInt().toString(), color = OrangePrimary, fontSize = 11.sp)
@@ -710,7 +727,7 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
                                         }
                                     }
                                 }
-                                val lineTotal = if (item.pricingType == "WEIGHT_BASED") item.price * (item.weight ?: 0.0) else item.price * item.quantity
+                                val lineTotal = if (item.pricingType == "WEIGHT") item.price * (item.weight ?: 0.0) else item.price * item.quantity
                                 Text((profile?.currency ?: "Rs.") + String.format("%.2f", lineTotal), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 45.dp), textAlign = TextAlign.End)
                             }
                         }
@@ -887,215 +904,268 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
     val context = LocalContext.current
     
     var showLongPressMenu by remember { mutableStateOf<BillingItem?>(null) }
+    var fabExpanded by remember { mutableStateOf(false) }
     var isBulkMode by remember { mutableStateOf(false) }
 
     val app = OptixApplication.instance
+    val userPermissions by app.authManager.userPermissions.collectAsState()
+    val canAddProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.ADD_PRODUCTS) }
+    val canEditProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.EDIT_PRODUCTS) }
+    val canManageCategory = remember(userPermissions) { com.example.services.PermissionManager.canAny(com.example.services.PermissionManager.ADD_CATEGORIES, com.example.services.PermissionManager.VIEW_CATEGORIES) }
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        onRefresh = {
-            viewModel.refresh(context)
-        },
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    "MENU",
-                    fontWeight = FontWeight.Black,
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    softWrap = false
-                )
-                
-                val userPermissions by OptixApplication.instance.authManager.userPermissions.collectAsState()
-                val canAddProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.ADD_PRODUCTS) }
-                val canEditProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.EDIT_PRODUCTS) }
-                val canManageCategory = remember(userPermissions) { com.example.services.PermissionManager.canAny(com.example.services.PermissionManager.ADD_CATEGORIES, com.example.services.PermissionManager.VIEW_CATEGORIES) }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isBulkMode) {
-                        IconButton(onClick = { isBulkMode = false; viewModel.selectedItemsForBulk.value = emptySet() }) {
-                            Icon(Icons.Default.Close, null, tint = Color.Red)
-                        }
-                    } else {
-                        if (canManageCategory) {
-                            IconButton(onClick = { navController.navigate("manage_categories") }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
-                                Icon(Icons.Default.Category, null, tint = OrangePrimary)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                        if (canEditProduct) {
-                            IconButton(onClick = { isBulkMode = true }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
-                                Icon(Icons.Default.EditNote, null, tint = OrangePrimary)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                    }
-                    if (canAddProduct) {
-                        Button(
-                            onClick = { viewModel.clearForm(); navController.navigate("add_edit_item") },
-                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black),
-                            shape = RoundedCornerShape(16.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("ADD ITEM", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(20.dp))
-            
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { viewModel.searchItemQuery.value = it },
-                placeholder = { Text("Search menu items...") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) }
+    Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+        // Header
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "MENU",
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                fontSize = 34.sp,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                softWrap = false
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Category Filter Chips
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "All",
-                        onClick = { viewModel.selectedCategoryFilter.value = "All" },
-                        label = { Text("All") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
-                    )
-                }
-                items(categories) { cat ->
-                    FilterChip(
-                        selected = selectedFilter == cat.name,
-                        onClick = { viewModel.selectedCategoryFilter.value = cat.name },
-                        label = { Text(cat.name) },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = OrangePrimary, selectedLabelColor = Color.Black)
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            val filteredItems = items.filter { 
-                (selectedFilter == "All" || it.categoryId == categories.find { c -> c.name == selectedFilter }?.id) &&
-                it.name.contains(searchQuery, ignoreCase = true)
-            }
 
-            if (filteredItems.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("No items found", color = Color.Gray)
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(160.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(filteredItems) { item ->
-                        val isSelected = selectedIds.contains(item.id)
-                        PremiumCard(
-                            onClick = { 
-                                if (isBulkMode) {
-                                    val current = selectedIds.toMutableSet()
-                                    if (isSelected) current.remove(item.id) else current.add(item.id)
-                                    viewModel.selectedItemsForBulk.value = current
-                                } else {
-                                    viewModel.fillForm(item)
-                                    navController.navigate("add_edit_item")
-                                }
-                            },
-                            onLongClick = { if (!isBulkMode) showLongPressMenu = item },
-                            modifier = Modifier
-                                .alpha(if (item.isOutOfStock) 0.5f else 1.0f)
-                                .border(2.dp, if (isSelected) OrangePrimary else Color.Transparent, RoundedCornerShape(22.dp))
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(80.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color.White.copy(alpha = 0.05f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(item.name.take(1).uppercase(), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(item.name, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(item.categoryName, color = Color.Gray, fontSize = 12.sp)
-                                Text("Rs.${item.price.toInt()}${if (item.pricingType == "WEIGHT_BASED") "/${item.unit}" else ""}", color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                                
-                                if (item.isOutOfStock) {
-                                    Text("OUT OF STOCK", color = Color.Red, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isBulkMode) {
+                    IconButton(onClick = { isBulkMode = false; viewModel.selectedItemsForBulk.value = emptySet() }) {
+                        Icon(Icons.Default.Close, null, tint = Color.Red)
+                    }
+                } else if (canEditProduct) {
+                    IconButton(
+                        onClick = { isBulkMode = true },
+                        modifier = Modifier.background(SurfaceDark, CircleShape)
+                    ) {
+                        Icon(Icons.Default.EditNote, null, tint = OrangePrimary)
                     }
                 }
             }
+        }
 
-            if (isBulkMode && selectedIds.isNotEmpty()) {
-                var showBulkActionDialog by remember { mutableStateOf(false) }
-                Button(
-                    onClick = { showBulkActionDialog = true },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 16.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)
-                ) {
-                    Text("BULK UPDATE (${selectedIds.size} ITEMS)", fontWeight = FontWeight.Bold)
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { viewModel.searchItemQuery.value = it },
+            placeholder = { Text("Search menu items...", color = Color.Gray) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            shape = RoundedCornerShape(16.dp),
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = SurfaceDark,
+                unfocusedContainerColor = SurfaceDark,
+                focusedBorderColor = OrangePrimary,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Category Filter Chips
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedFilter == "All",
+                    onClick = { viewModel.selectedCategoryFilter.value = "All" },
+                    label = { Text("All", fontWeight = FontWeight.Bold) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = OrangePrimary,
+                        selectedLabelColor = Color.Black,
+                        containerColor = SurfaceDark,
+                        labelColor = Color.White
+                    ),
+                    border = null,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+            items(categories) { cat ->
+                FilterChip(
+                    selected = selectedFilter == cat.name,
+                    onClick = { viewModel.selectedCategoryFilter.value = cat.name },
+                    label = { Text(cat.name, fontWeight = FontWeight.Bold) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = OrangePrimary,
+                        selectedLabelColor = Color.Black,
+                        containerColor = SurfaceDark,
+                        labelColor = Color.White
+                    ),
+                    border = null,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Main Content Area with PullToRefresh
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refresh(context) },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val filteredItems = items.filter {
+                    (selectedFilter == "All" || it.categoryId == categories.find { c -> c.name == selectedFilter }?.id) &&
+                            it.name.contains(searchQuery, ignoreCase = true)
                 }
 
-                if (showBulkActionDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showBulkActionDialog = false },
-                        containerColor = SurfaceDark,
-                        title = { Text("Bulk Price Update", color = Color.White) },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                var expanded by remember { mutableStateOf(false) }
-                                Box {
-                                    OutlinedTextField(
-                                        value = viewModel.bulkPriceAction.value,
-                                        onValueChange = { },
-                                        readOnly = true,
-                                        label = { Text("Operation") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        trailingIcon = { IconButton(onClick = { expanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                if (filteredItems.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No items found", color = Color.Gray)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 100.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filteredItems) { item ->
+                            val isSelected = selectedIds.contains(item.id)
+                            PremiumCard(
+                                onClick = {
+                                    if (isBulkMode) {
+                                        val current = selectedIds.toMutableSet()
+                                        if (isSelected) current.remove(item.id) else current.add(item.id)
+                                        viewModel.selectedItemsForBulk.value = current
+                                    } else {
+                                        viewModel.fillForm(item)
+                                        navController.navigate("add_edit_item")
+                                    }
+                                },
+                                onLongClick = { if (!isBulkMode) showLongPressMenu = item },
+                                modifier = Modifier
+                                    .alpha(if (item.isOutOfStock) 0.5f else 1.0f)
+                                    .border(
+                                        2.dp,
+                                        if (isSelected) OrangePrimary else Color.Transparent,
+                                        RoundedCornerShape(22.dp)
                                     )
-                                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                        listOf("Set Same Price", "Increase by Fixed Amount", "Decrease by Fixed Amount", "Increase by Percentage", "Decrease by Percentage").forEach { op ->
-                                            DropdownMenuItem(text = { Text(op) }, onClick = { viewModel.bulkPriceAction.value = op; expanded = false })
-                                        }
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth().padding(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(75.dp)
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .background(Color.White.copy(alpha = 0.07f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            item.name.take(1).uppercase(),
+                                            fontSize = 32.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = OrangePrimary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Text(
+                                        item.name,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "Rs.${item.price.toInt()}${if (item.pricingType == "WEIGHT") "/${item.unit}" else ""}",
+                                        color = OrangePrimary,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 18.sp
+                                    )
+
+                                    if (item.isOutOfStock) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            "OUT OF STOCK",
+                                            color = Color.Red,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
-                                OutlinedTextField(
-                                    value = viewModel.bulkValue.value,
-                                    onValueChange = { viewModel.bulkValue.value = it },
-                                    label = { Text("Value") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            Button(onClick = { viewModel.applyBulkUpdate(); showBulkActionDialog = false; isBulkMode = false }) {
-                                Text("APPLY")
                             }
                         }
-                    )
+                    }
+                }
+
+                // EXPANDABLE FLOATING ACTION BUTTON
+                if (!isBulkMode) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 20.dp, end = 20.dp),
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        AnimatedVisibility(
+                            visible = fabExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                if (canAddProduct) {
+                                    ExtendedFloatingActionButton(
+                                        onClick = {
+                                            fabExpanded = false
+                                            viewModel.clearForm()
+                                            navController.navigate("add_edit_item")
+                                        },
+                                        containerColor = OrangePrimary,
+                                        contentColor = Color.Black,
+                                        icon = { Icon(Icons.Default.Add, null) },
+                                        text = { Text("Add Product", fontWeight = FontWeight.Bold) },
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                }
+
+                                if (canManageCategory) {
+                                    ExtendedFloatingActionButton(
+                                        onClick = {
+                                            fabExpanded = false
+                                            navController.navigate("manage_categories")
+                                        },
+                                        containerColor = SurfaceDark,
+                                        contentColor = Color.White,
+                                        icon = { Icon(Icons.Default.Category, null) },
+                                        text = { Text("Add Category", fontWeight = FontWeight.Bold) },
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        FloatingActionButton(
+                            onClick = { fabExpanded = !fabExpanded },
+                            containerColor = OrangePrimary,
+                            contentColor = Color.Black,
+                            shape = CircleShape,
+                            elevation = FloatingActionButtonDefaults.elevation(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (fabExpanded) Icons.Default.Close else Icons.Default.Add,
+                                contentDescription = "Actions",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1146,7 +1216,7 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
 fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
     val context = LocalContext.current
     val categories by viewModel.categories.collectAsState()
-    val isEditing = viewModel.itemName.value.isNotEmpty()
+    val isEditing = viewModel.editingItem.value != null
 
     Scaffold(
         topBar = {
@@ -1234,7 +1304,7 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
                             onDismissRequest = { typeExpanded = false },
                             modifier = Modifier.fillMaxWidth(0.85f).background(SurfaceDark)
                         ) {
-                            listOf("FIXED", "WEIGHT_BASED").forEach { t ->
+                            listOf("FIXED", "WEIGHT").forEach { t ->
                                 DropdownMenuItem(
                                     text = { Text(t.replace("_", " "), color = Color.White) },
                                     onClick = { viewModel.pricingType.value = t; typeExpanded = false }
@@ -1246,7 +1316,7 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
                     OutlinedTextField(
                         value = viewModel.itemPrice.value,
                         onValueChange = { viewModel.itemPrice.value = it },
-                        label = { Text(if (viewModel.pricingType.value == "WEIGHT_BASED") "Price per Unit" else "Price") },
+                        label = { Text(if (viewModel.pricingType.value == "WEIGHT") "Price per Unit" else "Price") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
@@ -1254,7 +1324,7 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary)
                     )
 
-                    if (viewModel.pricingType.value == "WEIGHT_BASED") {
+                    if (viewModel.pricingType.value == "WEIGHT") {
                         var unitExpanded by remember { mutableStateOf(false) }
                         Box {
                             OutlinedTextField(
@@ -2353,17 +2423,74 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
                     Text(timeFrame.uppercase(), color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
                 
-                Row {
-                    IconButton(onClick = { showDatePicker = true }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
-                        Icon(Icons.Default.CalendarToday, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
+                var showReportsMenu by remember { mutableStateOf(false) }
+
+                Box {
+                    Button(
+                        onClick = { showReportsMenu = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Reports", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(onClick = { profile?.let { viewModel.generateSummaryPreview(it) } }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
-                        Icon(Icons.Default.Print, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(onClick = { viewModel.downloadReport(context, "PDF") }, modifier = Modifier.background(SurfaceDark, CircleShape)) {
-                        Icon(Icons.Default.Download, null, tint = OrangePrimary, modifier = Modifier.size(20.dp))
+
+                    DropdownMenu(
+                        expanded = showReportsMenu,
+                        onDismissRequest = { showReportsMenu = false },
+                        modifier = Modifier.background(SurfaceDark)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Preview PDF Report", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.PictureInPicture, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                viewModel.downloadReport(context, "PDF")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Print PDF Report", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.Print, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                viewModel.printPdfReport(context)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share PDF Report", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.Share, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                viewModel.sharePdfReport(context)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Save PDF to Downloads", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.Download, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                viewModel.savePdfToDownloads(context)
+                            }
+                        )
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        DropdownMenuItem(
+                            text = { Text("Thermal Print Summary", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.Receipt, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                profile?.let { viewModel.generateSummaryPreview(it) }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Select Custom Date", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = { Icon(Icons.Default.CalendarToday, null, tint = OrangePrimary) },
+                            onClick = {
+                                showReportsMenu = false
+                                showDatePicker = true
+                            }
+                        )
                     }
                 }
             }
@@ -2396,7 +2523,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
                 StatCard("TOTAL TAX", "Rs." + metrics.totalTax.toInt(), Modifier.weight(1f))
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text("TOP SELLING PRODUCTS", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(12.dp))
@@ -2423,6 +2550,37 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // REPORT HISTORY SECTION
+            val reportsList by app.dailyReportRepository.allReports.collectAsState(initial = emptyList())
+            Text("REPORT HISTORY", fontWeight = FontWeight.Black, color = Color.White, fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (reportsList.isEmpty()) {
+                        Text("No saved reports in history", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 13.sp)
+                    } else {
+                        reportsList.take(10).forEach { r ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.03f)).clickable { viewModel.openReportPdf(context, r) }.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.PictureInPicture, null, tint = OrangePrimary, modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Daily Report - ${r.date}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Sales: Rs.${r.totalSales.toInt()}", color = Color.Gray, fontSize = 11.sp)
+                                }
+                                Icon(Icons.Default.Download, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(80.dp))
         }
 
@@ -2493,6 +2651,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
                             OutlinedTextField(value = viewModel.profileAddress.value, onValueChange = { viewModel.profileAddress.value = it }, label = { Text("Address") })
                             OutlinedTextField(value = viewModel.profilePhone.value, onValueChange = { viewModel.profilePhone.value = it }, label = { Text("Phone") })
                             OutlinedTextField(value = viewModel.profileGst.value, onValueChange = { viewModel.profileGst.value = it }, label = { Text("GST Number") })
+                            
+                            var currencyExpanded by remember { mutableStateOf(false) }
+                            Box {
+                                OutlinedTextField(
+                                    value = if (viewModel.profileCurrency.value == "Rs.") "Rupees (Rs.)" else "Saudi Riyal (SAR)",
+                                    onValueChange = { },
+                                    label = { Text("Currency") },
+                                    readOnly = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = { IconButton(onClick = { currencyExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                                )
+                                DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
+                                    DropdownMenuItem(text = { Text("Rupees (Rs.)") }, onClick = { viewModel.profileCurrency.value = "Rs."; currencyExpanded = false })
+                                    DropdownMenuItem(text = { Text("Saudi Riyal (SAR)") }, onClick = { viewModel.profileCurrency.value = "SAR"; currencyExpanded = false })
+                                }
+                            }
+
                             Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 4.dp))
                             Text("Business Timings", color = OrangePrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             OutlinedTextField(value = viewModel.openingTime.value, onValueChange = { viewModel.openingTime.value = it }, label = { Text("Opening Time (e.g. 09:00)") })

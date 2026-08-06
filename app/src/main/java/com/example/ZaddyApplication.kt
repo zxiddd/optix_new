@@ -32,6 +32,7 @@ class OptixApplication : Application() {
     val notificationRepository by lazy { NotificationRepository(database.notificationDao()) }
 
     val authManager by lazy { AuthManager.getInstance(this) }
+    val cloudRepository by lazy { CloudRepository("admin") }
     val printerManager by lazy { PrinterManager.getInstance(this) }
 
     override fun onCreate() {

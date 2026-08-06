@@ -299,6 +299,32 @@ class RealtimeSyncManager private constructor(context: Context) {
                 }
             }
 
+            // 6.5. Business Reset Event
+            socket?.on("business.reset") { args ->
+                if (args.isNotEmpty() && args[0] is JSONObject) {
+                    val data = args[0] as JSONObject
+                    val sender = data.optString("senderSocketId")
+                    if (sender.isNotEmpty() && sender == mySocketId) {
+                        Log.d("OPTIX_FLOW", "[ECHO IGNORED] business.reset originating from self")
+                        return@on
+                    }
+
+                    val resetDate = data.optString("lastResetBusinessDate")
+                    Log.d("OPTIX_FLOW", "[EVENT RECEIVED] business.reset -> Date: $resetDate")
+                    scope.launch {
+                        try {
+                            val profileRepo = app.businessProfileRepository
+                            val existing = profileRepo.getProfileSync() ?: BusinessProfile()
+                            val updated = existing.copy(lastResetBusinessDate = resetDate)
+                            profileRepo.saveProfile(updated)
+                            Log.d("OPTIX_FLOW", "[ROOM UPDATED] business.reset applied live (<200ms)")
+                        } catch (e: Exception) {
+                            Log.e("OPTIX_FLOW", "[EVENT ERR] business.reset error: ${e.message}")
+                        }
+                    }
+                }
+            }
+
             // 7. Core Entity Events (Order / Product / Category)
             socket?.on("order.created") { args ->
                 if (args.isNotEmpty() && args[0] is JSONObject) {

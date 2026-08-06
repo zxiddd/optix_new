@@ -173,6 +173,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
             val bName = bObj.optString("name")
             val bPhone = bObj.optString("phone", "")
             val bAddr = bObj.optString("address", "")
+            val bCurrency = bObj.optString("currency", "Rs.")
 
             var rShowLogo = false
             var rLogoUrl: String? = null
@@ -216,12 +217,15 @@ class CloudRepository(private val userId: String, private val authToken: String?
             var bOpeningTime = "09:00"
             var bClosingTime = "22:00"
             var bTimezone = "Asia/Riyadh"
+            var bLastResetDate: String? = null
 
             if (bObj.has("settings") && !bObj.isNull("settings")) {
                 val sObj = bObj.getJSONObject("settings")
                 bOpeningTime = sObj.optString("openingTime", "09:00")
                 bClosingTime = sObj.optString("closingTime", "22:00")
                 bTimezone = sObj.optString("timezone", "Asia/Riyadh")
+                val rDate = sObj.optString("lastResetBusinessDate", "")
+                if (rDate.isNotEmpty()) bLastResetDate = rDate
             }
 
             if (bName.isNotEmpty() || bObj.has("receiptSettings") || bObj.has("settings")) {
@@ -232,9 +236,11 @@ class CloudRepository(private val userId: String, private val authToken: String?
                     name = if (bName.isNotEmpty()) bName else existing.name,
                     phone = if (bPhone.isNotEmpty()) bPhone else existing.phone,
                     address = if (bAddr.isNotEmpty()) bAddr else existing.address,
+                    currency = bCurrency,
                     openingTime = bOpeningTime,
                     closingTime = bClosingTime,
                     timezone = bTimezone,
+                    lastResetBusinessDate = bLastResetDate ?: existing.lastResetBusinessDate,
                     setupCompleted = true,
                     showLogo = rShowLogo,
                     logoPath = targetLogo,
@@ -467,6 +473,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
             put("openingTime", profile.openingTime)
             put("closingTime", profile.closingTime)
             put("timezone", profile.timezone)
+            put("currency", profile.currency)
             put("receiptSettings", JSONObject().apply {
                 put("showLogo", profile.showLogo)
                 val cleanLogo = formatUrl(profile.logoPath)
@@ -495,6 +502,25 @@ class CloudRepository(private val userId: String, private val authToken: String?
                 if (response.isSuccessful) {
                     lastSyncedProfile = profile
                     Log.d("OPTIX_FLOW", "[BUSINESS PROFILE SAVED TO CLOUD SUCCESS]")
+                }
+                cont.resume(Unit)
+            }
+        })
+    }
+
+    suspend fun resetBusinessDay(targetBusinessDate: String) = suspendCoroutine<Unit> { cont ->
+        val json = JSONObject().apply {
+            put("targetBusinessDate", targetBusinessDate)
+        }
+        val req = buildRequest("/business/reset").post(json.toString().toRequestBody(jsonMediaType)).build()
+        client.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("OPTIX_FLOW", "[CLOUD RESET ERR] POST /business/reset failed: ${e.message}")
+                cont.resume(Unit)
+            }
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    Log.d("OPTIX_FLOW", "[CLOUD RESET SUCCESS] POST /business/reset confirmed for $targetBusinessDate")
                 }
                 cont.resume(Unit)
             }
@@ -612,8 +638,14 @@ class CloudRepository(private val userId: String, private val authToken: String?
             if (item.id.isNotEmpty()) put("id", item.id)
             put("name", item.name)
             put("price", item.price)
+            put("pricingType", item.pricingType)
+            put("unit", item.unit)
             put("categoryId", item.categoryId)
             put("imageUrl", item.imageUrl)
+            put("isOutOfStock", item.isOutOfStock)
+            put("description", item.description)
+            put("barcode", item.barcode)
+            put("sku", item.sku)
         }
         val req = buildRequest("/products").post(json.toString().toRequestBody(jsonMediaType)).build()
         client.newCall(req).enqueue(object : Callback {

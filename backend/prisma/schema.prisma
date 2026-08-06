@@ -123,15 +123,16 @@ model Branch {
 }
 
 model BusinessSettings {
-  id                String   @id @default(uuid())
-  businessId        String   @unique
-  business          Business @relation(fields: [businessId], references: [id])
-  currency          String   @default("INR")
-  openingTime       String   @default("09:00")
-  closingTime       String   @default("22:00")
-  timezone          String   @default("Asia/Riyadh")
-  taxEnabled        Boolean  @default(false)
-  taxPercentage     Decimal  @default(0.0) @db.Decimal(10, 2)
+  id                    String   @id @default(uuid())
+  businessId            String   @unique
+  business              Business @relation(fields: [businessId], references: [id])
+  currency              String   @default("INR")
+  openingTime           String   @default("09:00")
+  closingTime           String   @default("22:00")
+  timezone              String   @default("Asia/Riyadh")
+  taxEnabled            Boolean  @default(false)
+  taxPercentage         Decimal  @default(0.0) @db.Decimal(10, 2)
+  lastResetBusinessDate String?
 }
 
 model ReceiptSettings {

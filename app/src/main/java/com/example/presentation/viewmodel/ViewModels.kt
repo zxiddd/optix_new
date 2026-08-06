@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import java.io.File
 
 // --- VIEWMODEL FACTORIES ---
 class ViewModelFactory(private val application: OptixApplication) : ViewModelProvider.Factory {
@@ -47,7 +48,7 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
             modelClass.isAssignableFrom(OrderHistoryViewModel::class.java) -> 
                 OrderHistoryViewModel(cloudRepo, application.printerManager, application.paymentQrRepository, application.billOrderRepository) as T
             modelClass.isAssignableFrom(AnalyticsViewModel::class.java) -> 
-                AnalyticsViewModel(cloudRepo, application.printerManager, application.billOrderRepository) as T
+                AnalyticsViewModel(cloudRepo, application.printerManager, application.billOrderRepository, application.businessProfileRepository, application.dailyReportRepository) as T
             modelClass.isAssignableFrom(ItemsViewModel::class.java) -> 
                 ItemsViewModel(cloudRepo, application.categoryRepository, application.billingItemRepository) as T
             modelClass.isAssignableFrom(StaffViewModel::class.java) ->
@@ -56,6 +57,8 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
                 SubscriptionViewModel(cloudRepo, application.subscriptionRepository) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> 
                 SettingsViewModel(cloudRepo, application.printerConfigRepository, authManager, application.printerManager, application.paymentQrRepository, application.businessProfileRepository) as T
+            modelClass.isAssignableFrom(com.example.presentation.viewmodel.AiMenuScannerViewModel::class.java) ->
+                com.example.presentation.viewmodel.AiMenuScannerViewModel(cloudRepo, application.billingItemRepository, application.categoryRepository) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
@@ -315,7 +318,7 @@ class BillingViewModel(
 
     val subtotal: Double
         get() = _cartItems.value.sumOf { 
-            if (it.pricingType == "WEIGHT_BASED") it.price * (it.weight ?: 0.0)
+            if (it.pricingType == "WEIGHT") it.price * (it.weight ?: 0.0)
             else it.price * it.quantity
         }
 
@@ -344,7 +347,7 @@ class BillingViewModel(
                 canBillWeight = staff?.canBillWeightBased ?: true
             }
 
-            if (item.pricingType == "WEIGHT_BASED") {
+            if (item.pricingType == "WEIGHT") {
                 if (!canBillWeight) {
                     // Logic to show error or Toast? I'll handle it with a state if needed
                     // For now, let's assume we allow and just check the input part
@@ -391,7 +394,7 @@ class BillingViewModel(
             price = item.price,
             weight = w,
             unit = item.unit,
-            pricingType = "WEIGHT_BASED"
+            pricingType = "WEIGHT"
         ))
         _cartItems.value = list
         weightItemToEdit.value = null
@@ -762,8 +765,13 @@ class OrderHistoryViewModel(
 class AnalyticsViewModel(
     private val repository: CloudRepository,
     private val printerManager: PrinterManager,
-    private val orderRepository: BillOrderRepository
+    private val orderRepository: BillOrderRepository,
+    private val profileRepository: BusinessProfileRepository,
+    private val dailyReportRepository: DailyReportRepository
 ) : ViewModel() {
+    val profile: StateFlow<BusinessProfile?> = profileRepository.profile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val allOrders: StateFlow<List<BillOrder>> = orderRepository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -837,9 +845,65 @@ class AnalyticsViewModel(
     fun downloadReport(context: Context, type: String) {
         val currentMetrics = metrics.value
         if (type == "PDF") {
-            ReportService(context).generatePdfReport(currentMetrics, timeFrame.value)
+            val service = ReportService(context)
+            val file = service.generatePdfReport(currentMetrics, timeFrame.value, profile.value) { generatedFile ->
+                viewModelScope.launch {
+                    try {
+                        val report = DailyReport(
+                            id = java.util.UUID.randomUUID().toString(),
+                            date = timeFrame.value,
+                            filePath = generatedFile.absolutePath,
+                            totalSales = currentMetrics.totalSales,
+                            timestamp = System.currentTimeMillis()
+                        )
+                        dailyReportRepository.insert(report)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            if (file != null) service.openPdf(file)
         } else {
             Toast.makeText(context, "CSV Exported successfully", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun printPdfReport(context: Context) {
+        val service = ReportService(context)
+        val currentMetrics = metrics.value
+        val file = service.generatePdfReport(currentMetrics, timeFrame.value, profile.value)
+        if (file != null) service.printPdf(file)
+    }
+
+    fun sharePdfReport(context: Context) {
+        val service = ReportService(context)
+        val currentMetrics = metrics.value
+        val file = service.generatePdfReport(currentMetrics, timeFrame.value, profile.value)
+        if (file != null) service.sharePdf(file)
+    }
+
+    fun savePdfToDownloads(context: Context) {
+        val service = ReportService(context)
+        val currentMetrics = metrics.value
+        val file = service.generatePdfReport(currentMetrics, timeFrame.value, profile.value)
+        if (file != null) service.downloadPdf(file)
+    }
+
+    fun openReportPdf(context: Context, report: DailyReport) {
+        val service = ReportService(context)
+        val file = File(report.filePath)
+        if (file.exists()) {
+            service.openPdf(file)
+        } else {
+            // Regenerate PDF if missing
+            val currentMetrics = metrics.value
+            val newFile = service.generatePdfReport(currentMetrics, report.date, profile.value)
+            if (newFile != null) {
+                viewModelScope.launch {
+                    dailyReportRepository.insert(report.copy(filePath = newFile.absolutePath))
+                }
+                service.openPdf(newFile)
+            }
         }
     }
 
@@ -964,7 +1028,7 @@ class ItemsViewModel(
     var itemPrice = mutableStateOf("")
     var itemCategoryId = mutableStateOf("")
     var itemCategoryName = mutableStateOf("")
-    var pricingType = mutableStateOf("FIXED")
+    var pricingType = mutableStateOf("FIXED") // FIXED, WEIGHT, OPEN
     var itemUnit = mutableStateOf("Piece")
 
     // Category Management States
@@ -976,7 +1040,10 @@ class ItemsViewModel(
     var bulkPriceAction = mutableStateOf("Set Same Price")
     var bulkValue = mutableStateOf("")
 
+    var editingItem = mutableStateOf<BillingItem?>(null)
+
     fun clearForm() {
+        editingItem.value = null
         itemName.value = ""
         itemPrice.value = ""
         itemCategoryId.value = ""
@@ -986,6 +1053,7 @@ class ItemsViewModel(
     }
 
     fun fillForm(item: BillingItem) {
+        editingItem.value = item
         itemName.value = item.name
         itemPrice.value = item.price.toString()
         itemCategoryId.value = item.categoryId
@@ -995,7 +1063,8 @@ class ItemsViewModel(
     }
 
     fun saveItem(selectedItem: BillingItem?, onSuccess: () -> Unit) {
-        val isEditing = selectedItem != null
+        val targetItem = selectedItem ?: editingItem.value
+        val isEditing = targetItem != null
         val requiredPerm = if (isEditing) com.example.services.PermissionManager.EDIT_PRODUCTS else com.example.services.PermissionManager.ADD_PRODUCTS
         if (!com.example.services.PermissionManager.can(requiredPerm)) {
             return
@@ -1012,15 +1081,19 @@ class ItemsViewModel(
 
         viewModelScope.launch {
             val item = BillingItem(
-                id = selectedItem?.id ?: UUID.randomUUID().toString(),
+                id = targetItem?.id ?: UUID.randomUUID().toString(),
                 name = name,
                 price = price,
                 categoryId = catId,
                 categoryName = catName,
-                isAvailable = selectedItem?.isAvailable ?: true,
-                isOutOfStock = selectedItem?.isOutOfStock ?: false,
+                isAvailable = targetItem?.isAvailable ?: true,
+                isOutOfStock = targetItem?.isOutOfStock ?: false,
                 pricingType = pricingType.value,
-                unit = itemUnit.value
+                unit = itemUnit.value,
+                version = (targetItem?.version ?: 0) + 1,
+                lastModified = System.currentTimeMillis(),
+                isSynced = false,
+                isDeleted = false
             )
             itemRepository.insert(item)
             launch(Dispatchers.IO) {
@@ -1567,6 +1640,10 @@ class SettingsViewModel(
     // Logo
     var showLogo = mutableStateOf(false)
 
+    val businessStatus: StateFlow<com.example.services.BusinessStatus?> = profile.map { bp ->
+        if (bp != null) com.example.services.BusinessClock.calculateStatus(bp) else null
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     init {
         viewModelScope.launch {
             printerConfig.collect { config ->
@@ -1579,6 +1656,7 @@ class SettingsViewModel(
             profile.collect { bp ->
                 if (bp != null) {
                     initProfileForm(bp)
+                    com.example.services.BusinessResetManager.checkAndResetIfRequired(bp)
                 }
             }
         }

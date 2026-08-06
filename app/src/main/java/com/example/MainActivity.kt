@@ -86,9 +86,10 @@ fun OptixBillingApp() {
     // Instantiate shared ViewModels
     val authViewModel: AuthViewModel = viewModel(factory = factory)
     val profileViewModel: BusinessSetupViewModel = viewModel(factory = factory)
+    val itemsViewModel: ItemsViewModel = viewModel(factory = factory)
     
-    val isLoggedIn = authViewModel.isLoggedIn.value
-    val userRole = authViewModel.userRole.value
+    val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
+    val userRole by authViewModel.userRole.collectAsState()
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
@@ -99,8 +100,12 @@ fun OptixBillingApp() {
         }
     }
 
-    val startDestination = remember(isLoggedIn) {
-        if (isLoggedIn) "main" else "login"
+    val startDestination = remember(isLoggedIn, userRole) {
+        when {
+            !isLoggedIn -> "login"
+            userRole == "staff" || application.authManager.isSetupCompleted() -> "main"
+            else -> "business_setup"
+        }
     }
 
     NavHost(
@@ -124,7 +129,7 @@ fun OptixBillingApp() {
                 billingViewModel = viewModel(factory = factory),
                 historyViewModel = viewModel(factory = factory),
                 analyticsViewModel = viewModel(factory = factory),
-                itemsViewModel = viewModel(factory = factory),
+                itemsViewModel = itemsViewModel,
                 settingsViewModel = viewModel(factory = factory),
                 staffViewModel = viewModel(factory = factory)
             )
@@ -141,7 +146,6 @@ fun OptixBillingApp() {
         }
 
         composable("manage_categories") {
-            val itemsViewModel: ItemsViewModel = viewModel(factory = factory)
             ManageCategoriesScreen(navController, itemsViewModel)
         }
 
@@ -158,7 +162,6 @@ fun OptixBillingApp() {
         }
 
         composable("add_edit_item") {
-            val itemsViewModel: ItemsViewModel = viewModel(factory = factory)
             AddEditItemScreen(navController, itemsViewModel)
         }
 

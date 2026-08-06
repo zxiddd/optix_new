@@ -17,6 +17,7 @@ data class BusinessProfile(
     val openingTime: String = "09:00",
     val closingTime: String = "22:00",
     val timezone: String = "Asia/Riyadh",
+    val lastResetBusinessDate: String? = null,
     
     // Receipt Customization Flags
     val showBusinessName: Boolean = true,
@@ -244,9 +245,9 @@ data class OrderItem(
     val itemName: String = "",
     val price: Double = 0.0, // Fixed price or Price per Unit
     val quantity: Int = 0, // Used for FIXED type
-    val weight: Double? = null, // Used for WEIGHT_BASED type
-    val unit: String? = null, // Used for WEIGHT_BASED type
-    val pricingType: String = "FIXED" // FIXED, WEIGHT_BASED
+    val weight: Double? = null, // Used for WEIGHT type
+    val unit: String? = null, // Used for WEIGHT type
+    val pricingType: String = "FIXED" // FIXED, WEIGHT, OPEN
 )
 
 data class AiMessage(
