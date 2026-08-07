@@ -258,7 +258,7 @@ fun MainShellScreen(
 
                 Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                     when (currentTab) {
-                        "billing" -> BillingScreen(billingViewModel, currentProfile, userRole)
+                        "billing" -> BillingScreen(billingViewModel, currentProfile, userRole, onUpgrade = { navController.navigate("subscription") })
                         "history" -> HistoryScreen(historyViewModel, currentProfile, userRole)
                         "items" -> ItemsScreen(itemsViewModel, navController)
                         "analytics" -> AnalyticsScreen(analyticsViewModel, currentProfile)
@@ -285,10 +285,11 @@ fun MainShellScreen(
         }
     }
 
+    val currency = currentProfile?.currency ?: "₹"
     if (showReceipt && receiptText != null) {
         ThermalReceiptDialog(
             receiptText = receiptText!!,
-            currency = currentProfile?.currency ?: "Rs.",
+            currency = currency,
             onDismiss = { billingViewModel.showReceiptPreview.value = false }
         )
     }
@@ -504,21 +505,34 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
                     OutlinedTextField(value = viewModel.address.value, onValueChange = { viewModel.address.value = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = viewModel.phone.value, onValueChange = { viewModel.phone.value = it }, label = { Text("Phone") }, modifier = Modifier.fillMaxWidth())
                     
-                    var currencyExpanded by remember { mutableStateOf(false) }
+                    var countryExpanded by remember { mutableStateOf(false) }
                     Box {
                         OutlinedTextField(
-                            value = if (viewModel.selectedCurrency.value == "Rs.") "Rupees (Rs.)" else "Saudi Riyal (SAR)",
+                            value = viewModel.selectedCountry.value,
                             onValueChange = { },
-                            label = { Text("Currency") },
+                            label = { Text("Country") },
                             readOnly = true,
                             modifier = Modifier.fillMaxWidth(),
-                            trailingIcon = { IconButton(onClick = { currencyExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                            trailingIcon = { IconButton(onClick = { countryExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
                         )
-                        DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
-                            DropdownMenuItem(text = { Text("Rupees (Rs.)") }, onClick = { viewModel.selectedCurrency.value = "Rs."; currencyExpanded = false })
-                            DropdownMenuItem(text = { Text("Saudi Riyal (SAR)") }, onClick = { viewModel.selectedCurrency.value = "SAR"; currencyExpanded = false })
+                        DropdownMenu(expanded = countryExpanded, onDismissRequest = { countryExpanded = false }) {
+                            com.example.services.PricingEngine.getCountryList().forEach { country ->
+                                DropdownMenuItem(text = { Text(country) }, onClick = {
+                                    viewModel.selectedCountry.value = country
+                                    countryExpanded = false
+                                })
+                            }
                         }
                     }
+
+                    OutlinedTextField(
+                        value = "Currency: ${viewModel.selectedCurrency}",
+                        onValueChange = { },
+                        label = { Text("Automatic Currency") },
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = false
+                    )
 
                     if (setupError != null) Text(setupError!!, color = Color.Red)
                     Button(
@@ -533,6 +547,17 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
                     ) {
                         Text("Launch POS 🚀", fontWeight = FontWeight.Bold, color = Color.Black)
                     }
+
+                    TextButton(
+                        onClick = {
+                            viewModel.saveBusinessProfile {
+                                navController.navigate("main") { popUpTo("business_setup") { inclusive = true } }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Explore First (14 Days Trial)", color = Color.Gray, fontSize = 13.sp)
+                    }
                 }
             }
         }
@@ -541,7 +566,7 @@ fun BusinessSetupScreen(navController: NavController, viewModel: BusinessSetupVi
 
 // --- BILLING SCREEN ---
 @Composable
-fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRole: String) {
+fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRole: String, onUpgrade: () -> Unit) {
     val items by viewModel.items.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val cart by viewModel.cartItems.collectAsState()
@@ -573,16 +598,7 @@ fun BillingScreen(viewModel: BillingViewModel, profile: BusinessProfile?, userRo
         }
 
         if (isLimitReached) {
-            AlertDialog(
-                onDismissRequest = { },
-                title = { Text("Limit Reached") },
-                text = { Text("You have reached today's free billing limit. Upgrade to Premium for unlimited billing.") },
-                confirmButton = {
-                    Button(onClick = { /* Navigate to subscription if possible */ }) {
-                        Text("Upgrade Now")
-                    }
-                }
-            )
+            TrialLimitDialog(onUpgrade = onUpgrade)
         }
 
         // Weight Based Dialog
@@ -657,7 +673,7 @@ fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessPr
     Card(modifier = Modifier.fillMaxWidth().height(100.dp).clickable { viewModel.addToCart(item) }, colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text(item.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-            Text((profile?.currency ?: "Rs.") + item.price.toInt().toString() + (if (item.pricingType == "WEIGHT_BASED") "/${item.unit}" else ""), color = OrangePrimary)
+            Text((profile?.currency ?: "₹") + item.price.toInt().toString() + (if (item.pricingType == "WEIGHT") "/${item.unit}" else ""), color = OrangePrimary)
             if (qty > 0) Text(qty.toString() + " in cart", fontSize = 10.sp, color = Color.Green)
             if (weightInCart > 0) Text(String.format("%.3f %s", weightInCart, item.unit), fontSize = 10.sp, color = Color.Green)
         }
@@ -668,9 +684,7 @@ fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessPr
 fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
     val context = LocalContext.current
     val cart by viewModel.cartItems.collectAsState()
-    val subtotal = remember(cart, viewModel.discountValue.value) { viewModel.subtotal }
-    val discount = remember(viewModel.discountValue.value) { viewModel.discount }
-    val total = remember(cart, viewModel.discountValue.value) { viewModel.grandTotal }
+    val total = viewModel.grandTotal
 
     Card(
         modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
@@ -707,10 +721,11 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
                             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.05f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(item.itemName, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                                    val currency = profile?.currency ?: "₹"
                                     if (item.pricingType == "WEIGHT") {
-                                        Text("${String.format("%.3f", item.weight)} ${item.unit} x ${profile?.currency ?: "Rs."}${item.price.toInt()}", color = OrangePrimary, fontSize = 11.sp)
+                                        Text("${String.format("%.3f", item.weight)} ${item.unit} x $currency${item.price.toInt()}", color = OrangePrimary, fontSize = 11.sp)
                                     } else {
-                                        Text((profile?.currency ?: "Rs.") + item.price.toInt().toString(), color = OrangePrimary, fontSize = 11.sp)
+                                        Text(currency + item.price.toInt().toString(), color = OrangePrimary, fontSize = 11.sp)
                                     }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -728,7 +743,7 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
                                     }
                                 }
                                 val lineTotal = if (item.pricingType == "WEIGHT") item.price * (item.weight ?: 0.0) else item.price * item.quantity
-                                Text((profile?.currency ?: "Rs.") + String.format("%.2f", lineTotal), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 45.dp), textAlign = TextAlign.End)
+                                Text((profile?.currency ?: "₹") + String.format("%.2f", lineTotal), color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.widthIn(min = 45.dp), textAlign = TextAlign.End)
                             }
                         }
                     }
@@ -739,7 +754,7 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("GRAND TOTAL", color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
-                Text((profile?.currency ?: "Rs.") + String.format("%.2f", total), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                Text((profile?.currency ?: "₹") + String.format("%.2f", total), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 24.sp)
             }
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -793,6 +808,50 @@ fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
     }
 }
 
+@Composable
+fun TrialLimitDialog(onUpgrade: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { },
+        containerColor = SurfaceDark,
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Trial Limit Reached", color = Color.White, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            }
+        },
+        text = {
+            val sub by com.example.services.FeatureGate.subscription.collectAsState()
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "You have reached the maximum allowed usage for the Trial plan.",
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                UsageProgress("Bills Created", sub?.billsUsed ?: 0, 50)
+                Spacer(modifier = Modifier.height(12.dp))
+                UsageProgress("Products Added", sub?.productsUsed ?: 0, 5)
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Upgrade to Starter or Growth to continue using Optix.", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onUpgrade,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("VIEW PLANS", fontWeight = FontWeight.Black)
+            }
+        }
+    )
+}
+
 // --- HISTORY SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -805,10 +864,11 @@ fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, u
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val context = LocalContext.current
 
+    val currency = profile?.currency ?: "₹"
     if (previewText != null) {
         ThermalReceiptDialog(
             receiptText = previewText!!,
-            currency = profile?.currency ?: "Rs.",
+            currency = currency,
             onDismiss = { viewModel.hideReceiptPreview() }
         )
     }
@@ -875,7 +935,7 @@ fun HistoryScreen(viewModel: OrderHistoryViewModel, profile: BusinessProfile?, u
                                     Text("Customer: ${order.customerName}", fontSize = 12.sp, color = OrangePrimary)
                                 }
                             }
-                            Text((profile?.currency ?: "Rs.") + order.total.toInt().toString(), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            Text((profile?.currency ?: "₹") + order.total.toInt().toString(), color = OrangePrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
                             Spacer(modifier = Modifier.width(12.dp))
                             IconButton(onClick = { viewModel.showReceiptPreview(order, profile ?: return@IconButton) }) {
                                 Icon(Icons.Default.Visibility, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
@@ -901,6 +961,7 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
     val selectedFilter by viewModel.selectedCategoryFilter
     val selectedIds by viewModel.selectedItemsForBulk
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val isLimitReached by viewModel.isLimitReached.collectAsState()
     val context = LocalContext.current
     
     var showLongPressMenu by remember { mutableStateOf<BillingItem?>(null) }
@@ -908,6 +969,7 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
     var isBulkMode by remember { mutableStateOf(false) }
 
     val app = OptixApplication.instance
+    val profile by app.businessProfileRepository.profile.collectAsState(initial = null)
     val userPermissions by app.authManager.userPermissions.collectAsState()
     val canAddProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.ADD_PRODUCTS) }
     val canEditProduct = remember(userPermissions) { com.example.services.PermissionManager.can(com.example.services.PermissionManager.EDIT_PRODUCTS) }
@@ -1082,7 +1144,7 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        "Rs.${item.price.toInt()}${if (item.pricingType == "WEIGHT") "/${item.unit}" else ""}",
+                                        "${profile?.currency ?: "₹"}${item.price.toInt()}${if (item.pricingType == "WEIGHT") "/${item.unit}" else ""}",
                                         color = OrangePrimary,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 18.sp
@@ -1217,6 +1279,9 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
     val context = LocalContext.current
     val categories by viewModel.categories.collectAsState()
     val isEditing = viewModel.editingItem.value != null
+    val app = OptixApplication.instance
+    val profile by app.businessProfileRepository.profile.collectAsState(initial = null)
+    val isLimitReached by viewModel.isLimitReached.collectAsState()
 
     Scaffold(
         topBar = {
@@ -1316,11 +1381,11 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
                     OutlinedTextField(
                         value = viewModel.itemPrice.value,
                         onValueChange = { viewModel.itemPrice.value = it },
-                        label = { Text(if (viewModel.pricingType.value == "WEIGHT") "Price per Unit" else "Price") },
+                        label = { Text(if (viewModel.pricingType.value == "WEIGHT") "Price per Unit (${viewModel.itemUnit.value})" else "Price") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        prefix = { Text("Rs. ", color = OrangePrimary) },
+                        prefix = { Text("${profile?.currency ?: "₹"} ", color = OrangePrimary) },
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary)
                     )
 
@@ -1371,6 +1436,10 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
             }
             
             Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        if (isLimitReached) {
+            TrialLimitDialog(onUpgrade = { navController.navigate("subscription") })
         }
     }
 }
@@ -2381,6 +2450,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
     var showDatePicker by remember { mutableStateOf(false) }
     val summaryPreview by viewModel.summaryPreviewText.collectAsState()
     val app = OptixApplication.instance
+    val currency = profile?.currency ?: "₹"
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState()
@@ -2403,7 +2473,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
     if (summaryPreview != null) {
         ThermalReceiptDialog(
             receiptText = summaryPreview!!,
-            currency = profile?.currency ?: "Rs.",
+            currency = profile?.currency ?: "₹",
             onDismiss = { viewModel.hideSummaryPreview() },
             onPrint = { profile?.let { viewModel.printCurrentSummary(it) } }
         )
@@ -2512,15 +2582,15 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("TOTAL REVENUE", "Rs." + metrics.totalSales.toInt(), Modifier.weight(1.2f), true)
+                StatCard("TOTAL REVENUE", currency + metrics.totalSales.toInt(), Modifier.weight(1.2f), true)
                 StatCard("ORDERS", metrics.numBills.toString(), Modifier.weight(0.8f))
             }
             
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("AVG ORDER", "Rs." + metrics.averageOrderValue.toInt(), Modifier.weight(1f))
-                StatCard("TOTAL TAX", "Rs." + metrics.totalTax.toInt(), Modifier.weight(1f))
+                StatCard("AVG ORDER", currency + metrics.averageOrderValue.toInt(), Modifier.weight(1f))
+                StatCard("TOTAL TAX", currency + metrics.totalTax.toInt(), Modifier.weight(1f))
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -2541,7 +2611,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("Rs." + item.totalRevenue.toInt(), color = Color.Gray, fontSize = 11.sp)
+                                Text(currency + item.totalRevenue.toInt(), color = Color.Gray, fontSize = 11.sp)
                             }
                             Surface(color = OrangePrimary.copy(alpha = 0.1f), shape = CircleShape) {
                                 Text(item.quantity.toString() + " sold", color = OrangePrimary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
@@ -2572,7 +2642,7 @@ fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("Daily Report - ${r.date}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("Sales: Rs.${r.totalSales.toInt()}", color = Color.Gray, fontSize = 11.sp)
+                                    Text("Sales: ${currency}${r.totalSales.toInt()}", color = Color.Gray, fontSize = 11.sp)
                                 }
                                 Icon(Icons.Default.Download, null, tint = Color.Gray, modifier = Modifier.size(18.dp))
                             }
@@ -2650,23 +2720,38 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
                             OutlinedTextField(value = viewModel.profileName.value, onValueChange = { viewModel.profileName.value = it }, label = { Text("Business Name") })
                             OutlinedTextField(value = viewModel.profileAddress.value, onValueChange = { viewModel.profileAddress.value = it }, label = { Text("Address") })
                             OutlinedTextField(value = viewModel.profilePhone.value, onValueChange = { viewModel.profilePhone.value = it }, label = { Text("Phone") })
-                            OutlinedTextField(value = viewModel.profileGst.value, onValueChange = { viewModel.profileGst.value = it }, label = { Text("GST Number") })
                             
-                            var currencyExpanded by remember { mutableStateOf(false) }
+                            var countryExpanded by remember { mutableStateOf(false) }
                             Box {
                                 OutlinedTextField(
-                                    value = if (viewModel.profileCurrency.value == "Rs.") "Rupees (Rs.)" else "Saudi Riyal (SAR)",
+                                    value = viewModel.profileCountry.value,
                                     onValueChange = { },
-                                    label = { Text("Currency") },
+                                    label = { Text("Country") },
                                     readOnly = true,
                                     modifier = Modifier.fillMaxWidth(),
-                                    trailingIcon = { IconButton(onClick = { currencyExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
+                                    trailingIcon = { IconButton(onClick = { countryExpanded = true }) { Icon(Icons.Default.ArrowDropDown, null) } }
                                 )
-                                DropdownMenu(expanded = currencyExpanded, onDismissRequest = { currencyExpanded = false }) {
-                                    DropdownMenuItem(text = { Text("Rupees (Rs.)") }, onClick = { viewModel.profileCurrency.value = "Rs."; currencyExpanded = false })
-                                    DropdownMenuItem(text = { Text("Saudi Riyal (SAR)") }, onClick = { viewModel.profileCurrency.value = "SAR"; currencyExpanded = false })
+                                DropdownMenu(expanded = countryExpanded, onDismissRequest = { countryExpanded = false }) {
+                                    com.example.services.PricingEngine.getCountryList().forEach { country ->
+                                        DropdownMenuItem(text = { Text(country) }, onClick = {
+                                            viewModel.profileCountry.value = country
+                                            viewModel.profileCurrency.value = com.example.services.PricingEngine.getCurrencyForCountry(country)
+                                            countryExpanded = false
+                                        })
+                                    }
                                 }
                             }
+
+                            OutlinedTextField(value = viewModel.profileGst.value, onValueChange = { viewModel.profileGst.value = it }, label = { Text("GST Number") })
+                            
+                            OutlinedTextField(
+                                value = "Currency: ${viewModel.profileCurrency.value}",
+                                onValueChange = { },
+                                label = { Text("Automatic Currency") },
+                                readOnly = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = false
+                            )
 
                             Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 4.dp))
                             Text("Business Timings", color = OrangePrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -2721,14 +2806,26 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
         }
 
         if (isAdmin || canViewStaff) {
-            // Staff Management
-            PremiumCard(onClick = { navController.navigate("manage_staff") }) {
-                SettingsItem(
-                    icon = Icons.Default.People,
-                    title = "Staff Management",
-                    subtitle = "Manage credentials & permissions",
-                    onClick = { navController.navigate("manage_staff") }
-                )
+            if (com.example.services.FeatureGate.canUseStaff()) {
+                // Staff Management
+                PremiumCard(onClick = { navController.navigate("manage_staff") }) {
+                    SettingsItem(
+                        icon = Icons.Default.People,
+                        title = "Staff Management",
+                        subtitle = "Manage credentials & permissions",
+                        onClick = { navController.navigate("manage_staff") }
+                    )
+                }
+            } else {
+                PremiumCard(onClick = { navController.navigate("subscription") }) {
+                    SettingsItem(
+                        icon = Icons.Default.People,
+                        title = "Staff Management",
+                        subtitle = "Upgrade to GROWTH to manage staff",
+                        trailing = { Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(16.dp)) },
+                        onClick = { navController.navigate("subscription") }
+                    )
+                }
             }
         }
 
@@ -2876,7 +2973,8 @@ fun ReceiptCustomizationScreen(navController: NavController, viewModel: Settings
         append("Masala Chai      2  30.00\n")
         append("Samosa           1  20.00\n")
         append("--------------------------------\n")
-        append("TOTAL: Rs. 50.00\n")
+        val currencySymbol = profile?.currency ?: "₹"
+        append("TOTAL: $currencySymbol 50.00\n")
         append("--------------------------------\n")
         if (viewModel.qrEnabled.value && activeQr != null) append("[QR: ${activeQr?.name}]\n")
         append("${profile?.footerMessage}\n")
@@ -2935,19 +3033,23 @@ fun ReceiptCustomizationScreen(navController: NavController, viewModel: Settings
             Spacer(modifier = Modifier.height(24.dp))
 
             ReceiptSectionTitle("Header")
-            ReceiptToggleItem("Show Logo", viewModel.showLogo) { viewModel.saveReceiptToggle("showLogo", it) }
-            if (viewModel.showLogo.value) {
-                Button(onClick = { logoLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Update Logo")
-                }
-                TextButton(onClick = { viewModel.removeLogo(context) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Remove Logo", color = Color.Red)
+            if (com.example.services.FeatureGate.canUseAdvancedReceipt()) {
+                ReceiptToggleItem("Show Logo", viewModel.showLogo) { viewModel.saveReceiptToggle("showLogo", it) }
+                if (viewModel.showLogo.value) {
+                    Button(onClick = { logoLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Update Logo")
+                    }
+                    TextButton(onClick = { viewModel.removeLogo(context) }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Remove Logo", color = Color.Red)
+                    }
                 }
             }
             ReceiptToggleItem("Show Business Name", viewModel.showBusinessName) { viewModel.saveReceiptToggle("showBusinessName", it) }
             ReceiptToggleItem("Show Address", viewModel.showAddress) { viewModel.saveReceiptToggle("showAddress", it) }
             ReceiptToggleItem("Show Phone Number", viewModel.showPhone) { viewModel.saveReceiptToggle("showPhone", it) }
-            ReceiptToggleItem("Show GST Number", viewModel.showGst) { viewModel.saveReceiptToggle("showGst", it) }
+            if (com.example.services.FeatureGate.canUseAdvancedReceipt()) {
+                ReceiptToggleItem("Show GST Number", viewModel.showGst) { viewModel.saveReceiptToggle("showGst", it) }
+            }
             ReceiptToggleItem("Show Date & Time", viewModel.showDateTime) { viewModel.saveReceiptToggle("showDateTime", it) }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -2956,16 +3058,18 @@ fun ReceiptCustomizationScreen(navController: NavController, viewModel: Settings
             ReceiptToggleItem("Show Order Number", viewModel.showOrderNumber) { viewModel.saveReceiptToggle("showOrderNumber", it) }
             ReceiptToggleItem("Show Cashier Name", viewModel.showCashierName) { viewModel.saveReceiptToggle("showCashierName", it) }
             ReceiptToggleItem("Show Discounts", viewModel.showDiscounts) { viewModel.saveReceiptToggle("showDiscounts", it) }
-            ReceiptToggleItem("Show Taxes", viewModel.showTaxes) { viewModel.saveReceiptToggle("showTaxes", it) }
-            if (viewModel.showTaxes.value) {
-                OutlinedTextField(
-                    value = viewModel.taxPercentage.value,
-                    onValueChange = { viewModel.taxPercentage.value = it },
-                    label = { Text("Tax Percentage (%)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
+            if (com.example.services.FeatureGate.canUseGstTax()) {
+                ReceiptToggleItem("Show Taxes", viewModel.showTaxes) { viewModel.saveReceiptToggle("showTaxes", it) }
+                if (viewModel.showTaxes.value) {
+                    OutlinedTextField(
+                        value = viewModel.taxPercentage.value,
+                        onValueChange = { viewModel.taxPercentage.value = it },
+                        label = { Text("Tax Percentage (%)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -3048,8 +3152,10 @@ fun PaymentAccountsScreen(navController: NavController, viewModel: SettingsViewM
         },
         containerColor = DarkBackground,
         floatingActionButton = {
-            FloatingActionButton(onClick = { viewModel.qrAccountName.value = ""; showAddDialog = true }, containerColor = OrangePrimary) {
-                Icon(Icons.Default.Add, null, tint = Color.Black)
+            if (com.example.services.FeatureGate.canUseMultipleQr() || qrs.isEmpty()) {
+                FloatingActionButton(onClick = { viewModel.qrAccountName.value = ""; showAddDialog = true }, containerColor = OrangePrimary) {
+                    Icon(Icons.Default.Add, null, tint = Color.Black)
+                }
             }
         }
     ) { padding ->
@@ -3117,73 +3223,277 @@ fun PaymentAccountsScreen(navController: NavController, viewModel: SettingsViewM
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubscriptionScreen(navController: NavController, viewModel: SubscriptionViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val sub by viewModel.subscription.collectAsState()
-    val plans by viewModel.availablePlans.collectAsState()
+    val profile by viewModel.businessProfile.collectAsState()
+    val country = profile?.country ?: "India"
+    val plans = com.example.services.PricingEngine.getPlansForCountry(country)
+    
+    var billingCycle by viewModel.billingCycle
+    var showActivationDialog by remember { mutableStateOf(false) }
+
+    val isProcessing by viewModel.isProcessingPayment
+    val paymentErr by viewModel.paymentError
+
+    if (isProcessing) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+            CircularProgressIndicator(color = OrangePrimary)
+        }
+    }
+
+    if (paymentErr != null) {
+        LaunchedEffect(paymentErr) {
+            Toast.makeText(context, paymentErr, Toast.LENGTH_LONG).show()
+            viewModel.paymentError.value = null
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Subscription") },
+                title = { Text("My Subscription", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         },
         containerColor = DarkBackground
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-            Text("CURRENT PLAN", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
-            Spacer(modifier = Modifier.height(8.dp))
-            PremiumCard {
-                Text(sub?.planName ?: "Free Plan", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                Text("Rs.${sub?.amount?.toInt() ?: 0} / Month", color = OrangePrimary, fontWeight = FontWeight.Bold)
-                
-                Divider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 16.dp))
-                
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    SubscriptionStat("Status", sub?.status?.uppercase() ?: "ACTIVE", if (sub?.status == "active") Color.Green else Color.Red)
-                    SubscriptionStat("Expires On", if (sub?.expiryDate == 0L) "LIFETIME" else SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(sub?.expiryDate ?: 0L)), Color.White)
+        Column(
+            modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // --- Current Plan Header ---
+            Box(modifier = Modifier.fillMaxWidth().background(SurfaceDark).padding(24.dp)) {
+                Column {
+                    Text("CURRENT PLAN", fontSize = 12.sp, fontWeight = FontWeight.Black, color = OrangePrimary, letterSpacing = 1.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(sub?.planName ?: "Trial Mode", fontSize = 32.sp, fontWeight = FontWeight.Black, color = Color.White)
+                        if (sub?.planId == "TRIAL") {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Surface(color = OrangePrimary.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
+                                Text("TRIAL", color = OrangePrimary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Text(
+                        if (sub?.expiryDate == 0L) "Valid Forever" 
+                        else "Expires on ${SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(sub?.expiryDate ?: 0L))}",
+                        color = Color.Gray, fontSize = 14.sp
+                    )
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                if (sub?.expiryDate != 0L) {
-                    val remainingDays = ((sub?.expiryDate ?: System.currentTimeMillis()) - System.currentTimeMillis()) / (1000 * 60 * 60 * 24)
-                    Text("$remainingDays Days Remaining", color = if (remainingDays < 5) Color.Red else Color.Gray, fontSize = 14.sp)
+            }
+
+            // --- Usage Stats (Trial Only) ---
+            if (sub?.planId == "TRIAL") {
+                Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text("TRIAL USAGE", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    UsageProgress("Bills Created", sub?.billsUsed ?: 0, 50)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    UsageProgress("Products Added", sub?.productsUsed ?: 0, 5)
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
-                    Text("Renew Now")
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // --- Billing Cycle Toggle ---
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.background(SurfaceDark, RoundedCornerShape(32.dp)).padding(4.dp)
+            ) {
+                listOf("MONTHLY", "YEARLY").forEach { cycle ->
+                    val isSelected = billingCycle == cycle
+                    Surface(
+                        onClick = { billingCycle = cycle },
+                        color = if (isSelected) OrangePrimary else Color.Transparent,
+                        shape = RoundedCornerShape(32.dp),
+                        modifier = Modifier.width(120.dp)
+                    ) {
+                        Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                cycle, 
+                                fontWeight = FontWeight.Bold, 
+                                fontSize = 12.sp,
+                                color = if (isSelected) Color.Black else Color.Gray
+                            )
+                        }
+                    }
                 }
+            }
+            
+            if (billingCycle == "YEARLY") {
+                Text("SAVE 10% ON ANNUAL PLANS 🎉", color = Color.Green, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("UPGRADE PLANS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
-            Spacer(modifier = Modifier.height(12.dp))
-            plans.forEach { plan ->
-                PremiumCard(modifier = Modifier.padding(bottom = 12.dp)) {
+            // --- Plan Cards ---
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val activity = remember(context) { 
+                var ctx = context
+                while (ctx is android.content.ContextWrapper) {
+                    if (ctx is android.app.Activity) break
+                    ctx = ctx.baseContext
+                }
+                ctx as? android.app.Activity
+            }
+
+            Column(modifier = Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                plans.forEach { plan ->
+                    val currentPlanId = sub?.planId
+                    val currentCycle = sub?.billingCycle ?: "MONTHLY"
+                    // isCurrent = true only for TRIAL on its own plan (no payment button needed)
+                    // For paid plans, always show a button (renew or switch cycle)
+                    val isTrial = currentPlanId == "TRIAL"
+                    val isPaidAndSamePlan = !isTrial && currentPlanId == plan.planId
+                    val isCurrent = isTrial && plan.planId == currentPlanId
+                    PremiumPlanCard(
+                        plan = plan,
+                        cycle = billingCycle,
+                        isCurrent = isCurrent,
+                        isPaidCurrentPlan = isPaidAndSamePlan,
+                        currentCycle = currentCycle,
+                        onUpgrade = {
+                            if (activity != null) {
+                                viewModel.initiateRazorpayPayment(activity, plan.planId, billingCycle)
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            TextButton(onClick = { showActivationDialog = true }) {
+                Text("Have an Activation Code?", color = OrangePrimary, fontWeight = FontWeight.Bold)
+            }
+            
+            Spacer(modifier = Modifier.height(40.dp))
+        }
+    }
+
+    if (showActivationDialog) {
+        AlertDialog(
+            onDismissRequest = { showActivationDialog = false },
+            containerColor = SurfaceDark,
+            title = { Text("Activate Subscription", color = Color.White) },
+            text = {
+                Column {
+                    Text("Enter the code provided by your administrator.", color = Color.Gray, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = viewModel.activationCode.value,
+                        onValueChange = { viewModel.activationCode.value = it },
+                        placeholder = { Text("XXXX-XXXX-XXXX") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    if (viewModel.activationError.value != null) {
+                        Text(viewModel.activationError.value!!, color = Color.Red, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.activateCode { showActivationDialog = false } },
+                    enabled = !viewModel.isVerifyingCode.value
+                ) {
+                    if (viewModel.isVerifyingCode.value) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Text("ACTIVATE")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun UsageProgress(label: String, used: Int, limit: Int) {
+    val progress = (used.toFloat() / limit).coerceIn(0f, 1f)
+    Column {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.Gray, fontSize = 12.sp)
+            Text("$used / $limit", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        LinearProgressIndicator(
+            progress = progress,
+            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+            color = if (progress > 0.9f) Color.Red else OrangePrimary,
+            trackColor = Color.White.copy(alpha = 0.1f)
+        )
+    }
+}
+
+@Composable
+fun PremiumPlanCard(
+    plan: com.example.services.PlanPricing,
+    cycle: String,
+    isCurrent: Boolean,
+    isPaidCurrentPlan: Boolean = false,
+    currentCycle: String = "MONTHLY",
+    onUpgrade: () -> Unit
+) {
+    val price = if (cycle == "MONTHLY") plan.monthlyPrice else plan.yearlyPrice
+
+    // Determine button label
+    val buttonLabel = when {
+        isPaidCurrentPlan && cycle != currentCycle -> "SWITCH TO ${cycle}"
+        isPaidCurrentPlan -> "RENEW ${plan.planName.uppercase()}"
+        else -> "UPGRADE TO ${plan.planName.uppercase()}"
+    }
+
+    PremiumCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = { onUpgrade() }
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(plan.planName, fontSize = 22.sp, fontWeight = FontWeight.Black, color = Color.White)
+                Spacer(modifier = Modifier.weight(1f))
+                if (isCurrent || isPaidCurrentPlan) {
+                    Surface(color = Color.Green.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
+                        Text("ACTIVE", color = Color.Green, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("${plan.currency} ${price.toInt()}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = OrangePrimary)
+                Text(if (cycle == "MONTHLY") " / month" else " / year", color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+            }
+
+            Divider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 16.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                plan.features.forEach { feat ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(plan.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("Rs.${plan.price.toInt()}", color = OrangePrimary, fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = { viewModel.renewSubscription(plan) },
-                            colors = ButtonDefaults.buttonColors(containerColor = if (sub?.planId == plan.id) Color.White.copy(alpha = 0.1f) else OrangePrimary),
-                            enabled = sub?.planId != plan.id
-                        ) {
-                            Text(if (sub?.planId == plan.id) "Current" else "Upgrade")
-                        }
+                        Icon(Icons.Default.CheckCircle, null, tint = Color.Green, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(feat, color = Color.LightGray, fontSize = 13.sp)
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    plan.features.forEach { feature ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                            Icon(Icons.Default.Check, null, tint = Color.Green, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(feature, color = Color.Gray, fontSize = 13.sp)
-                        }
+                }
+                plan.nonFeatures.forEach { feat ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Cancel, null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(feat, color = Color.DarkGray, fontSize = 13.sp)
                     }
+                }
+            }
+
+            // Show button for all plans EXCEPT TRIAL plan already active (isCurrent = true and no payment needed)
+            if (!isCurrent) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onUpgrade,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)
+                ) {
+                    Text(buttonLabel, fontWeight = FontWeight.Black)
                 }
             }
         }
