@@ -2,6 +2,9 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { SyncGateway } from '../sync/sync.gateway';
 import * as crypto from 'crypto';
+import { hash } from '@node-rs/argon2';
+
+
 
 @Injectable()
 export class SuperAdminService {
@@ -1063,6 +1066,318 @@ export class SuperAdminService {
 
     return { success: true, deviceId };
   }
+
+  async createBusiness(data: {
+    name: string;
+    email: string;
+    phone?: string;
+    address?: string;
+    country?: string;
+    planId?: string;
+  }) {
+    const existingUser = await this.prisma.user.findUnique({ where: { email: data.email } });
+    if (existingUser) throw new BadRequestException('User with this email already exists');
+
+    const hashedPassword = await hash('Optix@123');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const business = await tx.business.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          phone: data.phone || '',
+          address: data.address || '',
+          country: data.country || 'India',
+        },
+      });
+
+      await tx.user.create({
+        data: {
+          email: data.email,
+          password: hashedPassword,
+          role: 'OWNER',
+          businessId: business.id,
+        },
+      });
+
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + (data.planId === 'TRIAL' ? 14 : 30));
+
+      await tx.subscription.create({
+        data: {
+          businessId: business.id,
+          planId: data.planId || 'STARTER',
+          status: data.planId === 'TRIAL' ? 'TRIAL' : 'ACTIVE',
+          expiryDate,
+        },
+      });
+
+      return { business };
+    });
+
+    await this.writeAdminAuditLog(result.business.id, 'CREATE_BUSINESS', 'BUSINESS', result.business.id, null, data);
+    return result;
+  }
+
+  async updateBusiness(id: string, data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    country?: string;
+  }) {
+    const business = await this.prisma.business.findUnique({ where: { id } });
+    if (!business) throw new NotFoundException('Business not found');
+
+    const updated = await this.prisma.business.update({
+      where: { id },
+      data,
+    });
+
+    await this.writeAdminAuditLog(id, 'UPDATE_BUSINESS', 'BUSINESS', id, business, updated);
+    return updated;
+  }
+
+  async deleteBusiness(id: string) {
+
+
+    const business = await this.prisma.business.findUnique({ where: { id } });
+    if (!business) throw new NotFoundException('Business not found');
+
+    await this.prisma.$transaction([
+      this.prisma.orderItem.deleteMany({ where: { order: { businessId: id } } }),
+      this.prisma.order.deleteMany({ where: { businessId: id } }),
+      this.prisma.product.deleteMany({ where: { businessId: id } }),
+      this.prisma.category.deleteMany({ where: { businessId: id } }),
+      this.prisma.customer.deleteMany({ where: { businessId: id } }),
+      this.prisma.expense.deleteMany({ where: { businessId: id } }),
+      this.prisma.paymentTransaction.deleteMany({ where: { businessId: id } }),
+      this.prisma.subscription.deleteMany({ where: { businessId: id } }),
+      this.prisma.device.deleteMany({ where: { businessId: id } }),
+      this.prisma.staff.deleteMany({ where: { businessId: id } }),
+      this.prisma.user.deleteMany({ where: { businessId: id } }),
+      this.prisma.auditLog.deleteMany({ where: { businessId: id } }),
+      this.prisma.business.delete({ where: { id } }),
+    ]);
+
+    return { success: true, id };
+  }
+
+  async createPayment(data: {
+    businessId: string;
+    amount: number;
+    planId: string;
+    billingCycle?: string;
+    gatewayPaymentId?: string;
+    gatewayOrderId?: string;
+    status?: string;
+  }) {
+    const payment = await this.prisma.paymentTransaction.create({
+      data: {
+        businessId: data.businessId,
+        amount: data.amount,
+        currency: 'INR',
+        planId: data.planId,
+        billingCycle: (data.billingCycle as any) || 'MONTHLY',
+        razorpayPaymentId: data.gatewayPaymentId || `pay_manual_${Date.now()}`,
+        razorpayOrderId: data.gatewayOrderId || `order_manual_${Date.now()}`,
+        status: data.status || 'CAPTURED',
+      },
+    });
+
+    await this.writeAdminAuditLog(data.businessId, 'CREATE_PAYMENT', 'PAYMENT_TRANSACTION', payment.id, null, payment);
+    return payment;
+  }
+
+  async updatePayment(id: string, data: {
+    status?: string;
+    amount?: number;
+    gatewayPaymentId?: string;
+    gatewayOrderId?: string;
+    planId?: string;
+  }) {
+    const existing = await this.prisma.paymentTransaction.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Payment transaction not found');
+
+    const updated = await this.prisma.paymentTransaction.update({
+      where: { id },
+      data: {
+        ...(data.status && { status: data.status }),
+        ...(data.amount !== undefined && { amount: data.amount }),
+        ...(data.gatewayPaymentId && { razorpayPaymentId: data.gatewayPaymentId }),
+        ...(data.gatewayOrderId && { razorpayOrderId: data.gatewayOrderId }),
+        ...(data.planId && { planId: data.planId }),
+      },
+    });
+
+    await this.writeAdminAuditLog(existing.businessId, 'UPDATE_PAYMENT', 'PAYMENT_TRANSACTION', id, existing, updated);
+    return updated;
+  }
+
+  async createSubscription(data: {
+    businessId: string;
+    planId: string;
+    status?: string;
+    expiryDate?: string;
+  }) {
+    const expiry = data.expiryDate ? new Date(data.expiryDate) : new Date(Date.now() + 30 * 86400000);
+
+    const sub = await this.prisma.subscription.upsert({
+      where: { businessId: data.businessId },
+      create: {
+        businessId: data.businessId,
+        planId: data.planId,
+        status: (data.status as any) || 'ACTIVE',
+        expiryDate: expiry,
+      },
+      update: {
+        planId: data.planId,
+        status: (data.status as any) || 'ACTIVE',
+        expiryDate: expiry,
+      },
+    });
+
+    await this.writeAdminAuditLog(data.businessId, 'CREATE_SUBSCRIPTION', 'SUBSCRIPTION', sub.id, null, sub);
+    return sub;
+  }
+
+  async updateSubscription(id: string, data: {
+    planId?: string;
+    status?: string;
+    expiryDate?: string;
+  }) {
+    const existing = await this.prisma.subscription.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Subscription not found');
+
+    const updated = await this.prisma.subscription.update({
+      where: { id },
+      data: {
+        ...(data.planId && { planId: data.planId }),
+        ...(data.status && { status: data.status as any }),
+        ...(data.expiryDate && { expiryDate: new Date(data.expiryDate) }),
+      },
+    });
+
+    await this.writeAdminAuditLog(existing.businessId, 'UPDATE_SUBSCRIPTION', 'SUBSCRIPTION', id, existing, updated);
+    return updated;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POSTGRESQL DATABASE EXPLORER ENGINE (READ / WRITE ANY TABLE)
+  // ─────────────────────────────────────────────────────────────────────────
+
+
+
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // POSTGRESQL DATABASE EXPLORER ENGINE (READ / WRITE ANY TABLE)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  getTableList() {
+    return [
+      { name: 'Business', description: 'Business & Store Tenants' },
+      { name: 'User', description: 'User Accounts & Credentials' },
+      { name: 'Staff', description: 'Staff Members & Roles' },
+      { name: 'Order', description: 'POS Invoices & Sales Orders' },
+      { name: 'Product', description: 'Inventory Products & Stock' },
+      { name: 'Category', description: 'Product Categories' },
+      { name: 'Customer', description: 'Customer Directory' },
+      { name: 'Expense', description: 'Business Expenses' },
+      { name: 'Subscription', description: 'SaaS Subscriptions' },
+      { name: 'PaymentTransaction', description: 'Payment Transactions & Gateway Logs' },
+      { name: 'AuditLog', description: 'System Audit Trail' },
+      { name: 'Device', description: 'Connected Device Fleet' },
+      { name: 'SyncQueue', description: 'Offline Sync Queue' },
+    ];
+  }
+
+  private getModelName(tableName: string): string {
+    const map: Record<string, string> = {
+      Business: 'business',
+      User: 'user',
+      Staff: 'staff',
+      Order: 'order',
+      Product: 'product',
+      Category: 'category',
+      Customer: 'customer',
+      Expense: 'expense',
+      Subscription: 'subscription',
+      PaymentTransaction: 'paymentTransaction',
+      AuditLog: 'auditLog',
+      Device: 'device',
+      SyncQueue: 'syncQueue',
+    };
+    const model = map[tableName];
+    if (!model || !(this.prisma as any)[model]) {
+      throw new BadRequestException(`Unsupported or unknown database table: ${tableName}`);
+    }
+    return model;
+  }
+
+  async getTableRows(tableName: string, page: any = 1, limit: any = 20, search?: string) {
+    const model = this.getModelName(tableName);
+    const p = Math.max(1, parseInt(String(page), 10) || 1);
+    const l = Math.max(1, parseInt(String(limit), 10) || 20);
+    const skip = (p - 1) * l;
+
+    const where: any = {};
+    if (search && ['Business', 'User', 'Staff', 'Product', 'Customer'].includes(tableName)) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, items] = await Promise.all([
+      (this.prisma as any)[model].count({ where }),
+      (this.prisma as any)[model].findMany({
+        where,
+        skip,
+        take: l,
+        orderBy: { createdAt: 'desc' },
+      }).catch(() => (this.prisma as any)[model].findMany({ where, skip, take: l })),
+    ]);
+
+    return { items, meta: { total, page: p, lastPage: Math.ceil(total / l) } };
+  }
+
+
+  async updateTableRow(tableName: string, id: string, data: Record<string, any>) {
+    const model = this.getModelName(tableName);
+    // Sanitize non-updatable fields
+    delete data.id;
+    delete data.createdAt;
+    delete data.updatedAt;
+
+    const updated = await (this.prisma as any)[model].update({
+      where: { id },
+      data,
+    });
+
+    await this.writeAdminAuditLog('GLOBAL', 'DB_EXPLORER_UPDATE', tableName, id, null, data);
+    return updated;
+  }
+
+  async deleteTableRow(tableName: string, id: string) {
+    const model = this.getModelName(tableName);
+    const deleted = await (this.prisma as any)[model].delete({
+      where: { id },
+    });
+
+    await this.writeAdminAuditLog('GLOBAL', 'DB_EXPLORER_DELETE', tableName, id, deleted, null);
+    return { success: true, id };
+  }
+
+  async createTableRow(tableName: string, data: Record<string, any>) {
+    const model = this.getModelName(tableName);
+    const created = await (this.prisma as any)[model].create({
+      data,
+    });
+
+    await this.writeAdminAuditLog('GLOBAL', 'DB_EXPLORER_CREATE', tableName, created.id || 'NEW', null, data);
+    return created;
+  }
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // PRIVATE HELPERS

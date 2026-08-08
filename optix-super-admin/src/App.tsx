@@ -19,6 +19,7 @@ import ServerMonitor from '@/pages/ServerMonitor';
 import ContainerLogs from '@/pages/ContainerLogs';
 import SecurityBackups from '@/pages/SecurityBackups';
 import SystemAlerts from '@/pages/SystemAlerts';
+import DatabaseExplorer from '@/pages/DatabaseExplorer';
 
 const App: React.FC = () => {
   return (
@@ -31,7 +32,9 @@ const App: React.FC = () => {
           <Route path="payments" element={<Payments />} />
           <Route path="payments/:id" element={<PaymentDetail />} />
           <Route path="subscriptions" element={<Subscriptions />} />
+          <Route path="db-explorer" element={<DatabaseExplorer />} />
           <Route path="activation-codes" element={<ActivationCodes />} />
+
           <Route path="feature-flags" element={<FeatureFlags />} />
           <Route path="remote-management" element={<RemoteManagement />} />
           <Route path="bulk-actions" element={<BulkActions />} />

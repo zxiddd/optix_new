@@ -3,16 +3,26 @@ import { useBusinesses } from '@/hooks/useBusinesses';
 import {
   Search,
   RefreshCw,
-  MoreVertical,
   ChevronLeft,
   ChevronRight,
-  Download
+  Download,
+  Plus,
+  Edit3,
+  Trash2,
+  X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import axios from 'axios';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
+
+const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+const API_URL = 'https://api.optixapp.in/api/v1/super-admin/businesses';
 
 const Businesses: React.FC = () => {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [params, setParams] = useState({
     page: 1,
     limit: 10,
@@ -21,14 +31,69 @@ const Businesses: React.FC = () => {
     status: '',
   });
 
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingBusiness, setEditingBusiness] = useState<any | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    country: 'India',
+    planId: 'STARTER',
+  });
+
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    country: 'India',
+  });
+
   const { data, isLoading, isError, refetch } = useBusinesses(params);
+
+  const createMutation = useMutation({
+    mutationFn: async (formData: any) => {
+      const res = await axios.post(API_URL, formData, authHeader());
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setShowCreateModal(false);
+      setCreateForm({ name: '', email: '', phone: '', address: '', country: 'India', planId: 'STARTER' });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await axios.patch(`${API_URL}/${id}`, data, authHeader());
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setEditingBusiness(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await axios.delete(`${API_URL}/${id}`, authHeader());
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      setDeletingId(null);
+    },
+  });
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setParams(prev => ({ ...prev, search: e.target.value, page: 1 }));
   };
 
   const getStatusColor = (status: string) => {
-    switch (status.toUpperCase()) {
+    switch ((status || '').toUpperCase()) {
       case 'ACTIVE': return 'bg-green-500/10 text-green-500 border-green-500/20';
       case 'TRIAL': return 'bg-blue-500/10 text-blue-500 border-blue-500/20';
       case 'SUSPENDED': return 'bg-red-500/10 text-red-500 border-red-500/20';
@@ -42,18 +107,21 @@ const Businesses: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black tracking-tighter">BUSINESSES</h1>
-          <p className="text-muted-foreground text-sm font-medium">Manage and monitor all platform accounts.</p>
+          <p className="text-muted-foreground text-sm font-medium">Manage, edit, create and control all platform tenants.</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 bg-primary text-black font-black text-sm px-4 py-2 rounded-xl hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+          >
+            <Plus size={16} /> Create Business
+          </button>
           <button
             onClick={() => refetch()}
             className="p-2 hover:bg-muted border border-border rounded-xl transition-colors"
             disabled={isLoading}
           >
             <RefreshCw size={18} className={cn(isLoading && "animate-spin")} />
-          </button>
-          <button className="flex items-center gap-2 bg-muted hover:bg-muted/80 border border-border px-4 py-2 rounded-xl text-sm font-bold transition-colors">
-            <Download size={16} /> Export CSV
           </button>
         </div>
       </div>
@@ -145,11 +213,11 @@ const Businesses: React.FC = () => {
                     <td className="p-4">
                       <div className="flex justify-center gap-3">
                         <div className="text-center">
-                          <div className="text-xs font-black">{business._count?.products}</div>
+                          <div className="text-xs font-black">{business._count?.products || 0}</div>
                           <div className="text-[8px] text-muted-foreground font-black uppercase">Items</div>
                         </div>
                         <div className="text-center">
-                          <div className="text-xs font-black">{business._count?.orders}</div>
+                          <div className="text-xs font-black">{business._count?.orders || 0}</div>
                           <div className="text-[8px] text-muted-foreground font-black uppercase">Bills</div>
                         </div>
                       </div>
@@ -165,10 +233,32 @@ const Businesses: React.FC = () => {
                     <td className="p-4 text-[10px] font-black text-muted-foreground uppercase tracking-wider">
                       {new Date(business.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
                     </td>
-                    <td className="p-4 text-right">
-                      <button className="p-2 hover:bg-muted rounded-lg text-muted-foreground transition-colors">
-                        <MoreVertical size={16} />
-                      </button>
+                    <td className="p-4 text-right" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => {
+                            setEditingBusiness(business);
+                            setEditForm({
+                              name: business.name,
+                              email: business.email || business.users?.[0]?.email || '',
+                              phone: business.phone || '',
+                              address: business.address || '',
+                              country: business.country || 'India',
+                            });
+                          }}
+                          className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+                          title="Edit Business"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(business.id)}
+                          className="p-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                          title="Delete Business"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -203,6 +293,158 @@ const Businesses: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Create Business Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="font-black text-base flex items-center gap-2">
+                <Plus className="text-primary" size={18} /> Create New Business Tenant
+              </h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-1 rounded-lg hover:bg-muted">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-muted-foreground">Business Name *</label>
+                <input
+                  value={createForm.name}
+                  onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
+                  placeholder="e.g. Optix Super Store"
+                  className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary font-bold"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-muted-foreground">Owner Email *</label>
+                <input
+                  type="email"
+                  value={createForm.email}
+                  onChange={e => setCreateForm({ ...createForm, email: e.target.value })}
+                  placeholder="owner@example.com"
+                  className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-muted-foreground">Phone</label>
+                  <input
+                    value={createForm.phone}
+                    onChange={e => setCreateForm({ ...createForm, phone: e.target.value })}
+                    placeholder="+91 9876543210"
+                    className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-muted-foreground">Plan</label>
+                  <select
+                    value={createForm.planId}
+                    onChange={e => setCreateForm({ ...createForm, planId: e.target.value })}
+                    className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                  >
+                    <option value="STARTER">Starter</option>
+                    <option value="GROWTH">Growth</option>
+                    <option value="TRIAL">14-Day Trial</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-border">
+              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 border border-border rounded-xl text-xs font-bold">
+                Cancel
+              </button>
+              <button
+                onClick={() => createMutation.mutate(createForm)}
+                disabled={createMutation.isPending || !createForm.name || !createForm.email}
+                className="px-4 py-2 bg-primary text-black font-black text-xs rounded-xl hover:bg-primary/90 disabled:opacity-50"
+              >
+                Create Business & Owner
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Business Modal */}
+      {editingBusiness && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="font-black text-base flex items-center gap-2">
+                <Edit3 className="text-primary" size={18} /> Edit Business Details
+              </h3>
+              <button onClick={() => setEditingBusiness(null)} className="p-1 rounded-lg hover:bg-muted">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-muted-foreground">Business Name</label>
+                <input
+                  value={editForm.name}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 font-bold focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-muted-foreground">Email</label>
+                <input
+                  value={editForm.email}
+                  onChange={e => setEditForm({ ...editForm, email: e.target.value })}
+                  className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-muted-foreground">Phone</label>
+                  <input
+                    value={editForm.phone}
+                    onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                    className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-muted-foreground">Country</label>
+                  <input
+                    value={editForm.country}
+                    onChange={e => setEditForm({ ...editForm, country: e.target.value })}
+                    className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 mt-1 focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-border">
+              <button onClick={() => setEditingBusiness(null)} className="px-4 py-2 border border-border rounded-xl text-xs font-bold">
+                Cancel
+              </button>
+              <button
+                onClick={() => updateMutation.mutate({ id: editingBusiness.id, data: editForm })}
+                disabled={updateMutation.isPending}
+                className="px-4 py-2 bg-primary text-black font-black text-xs rounded-xl hover:bg-primary/90 disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        open={!!deletingId}
+        title="Delete Business Tenant?"
+        description="This will permanently delete the business, owner account, products, orders, and subscriptions from PostgreSQL."
+        confirmLabel="Permanently Delete"
+        confirmVariant="danger"
+        loading={deleteMutation.isPending}
+        onConfirm={() => deletingId && deleteMutation.mutate(deletingId)}
+        onCancel={() => setDeletingId(null)}
+      />
     </div>
   );
 };

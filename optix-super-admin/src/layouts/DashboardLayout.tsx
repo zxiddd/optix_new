@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard,
-
   Store,
   CreditCard,
   Ticket,
@@ -24,6 +23,7 @@ import {
   Terminal,
   ShieldCheck,
   AlertOctagon,
+  Database,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +32,7 @@ const navItems = [
   { icon: Store, label: 'Businesses', path: '/businesses' },
   { icon: CreditCard, label: 'Payments', path: '/payments' },
   { icon: Ticket, label: 'Subscriptions', path: '/subscriptions' },
+  { icon: Database, label: 'Database Explorer', path: '/db-explorer' },
   { icon: Key, label: 'Activation Codes', path: '/activation-codes' },
   { icon: Layers, label: 'Feature Flags', path: '/feature-flags' },
   { icon: Radio, label: 'Remote Control', path: '/remote-management' },

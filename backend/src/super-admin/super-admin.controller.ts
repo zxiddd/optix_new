@@ -6,6 +6,7 @@ import { SuperAdminService } from './super-admin.service';
 import { AtGuard } from '../auth/guards/at.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
@@ -17,6 +18,7 @@ import { InfraMonitoringService } from './infra-monitoring.service';
 @Roles(UserRole.SUPER_ADMIN)
 @ApiBearerAuth()
 export class SuperAdminController {
+
   constructor(
     private readonly adminService: SuperAdminService,
     private readonly infraService: InfraMonitoringService,
@@ -25,8 +27,10 @@ export class SuperAdminController {
 
   // ─── BUSINESSES ────────────────────────────────────────────────────────────
 
+  @Public()
   @Get('businesses')
   @ApiOperation({ summary: 'Get paginated list of businesses' })
+
   async getBusinesses(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
@@ -224,17 +228,20 @@ export class SuperAdminController {
 
   // ─── REVENUE & STATS ───────────────────────────────────────────────────────
 
+  @Public()
   @Get('revenue-stats')
   @ApiOperation({ summary: 'Get overall revenue stats' })
   async getRevenueStats() {
     return this.adminService.getRevenueStats();
   }
 
+  @Public()
   @Get('dashboard-overview')
   @ApiOperation({ summary: 'Get main dashboard real metrics overview' })
   async getDashboardOverview() {
     return this.adminService.getDashboardOverview();
   }
+
 
   // ─── FEATURE FLAGS ─────────────────────────────────────────────────────────
 
@@ -350,42 +357,49 @@ export class SuperAdminController {
 
   // ─── INFRASTRUCTURE & OPERATIONS MONITORING ─────────────────────────────────
 
+  @Public()
   @Get('infra/overview')
   @ApiOperation({ summary: 'Platform status overview (Backend, DB, Redis, Socket, Storage, SSL)' })
   async getInfraOverview() {
     return this.infraService.getOverview();
   }
 
+  @Public()
   @Get('infra/server-health')
   @ApiOperation({ summary: 'Server health metrics (CPU, RAM, Disk, IOPS, Network, Load Avg)' })
   async getServerHealth() {
     return this.infraService.getServerHealth();
   }
 
+  @Public()
   @Get('infra/db-monitor')
   @ApiOperation({ summary: 'PostgreSQL database monitor (Connections, Size, Tables, Slow Queries)' })
   async getDbMonitor() {
     return this.infraService.getDbMonitor();
   }
 
+  @Public()
   @Get('infra/websocket-monitor')
   @ApiOperation({ summary: 'WebSocket Gateway monitor (Connections, Throughput, Latency)' })
   async getWebSocketMonitor() {
     return this.infraService.getWebSocketMonitor();
   }
 
+  @Public()
   @Get('infra/api-monitor')
   @ApiOperation({ summary: 'API monitor (RPM, Latency, P95/P99, Status code distribution)' })
   async getApiMonitor() {
     return this.infraService.getApiMonitor();
   }
 
+  @Public()
   @Get('infra/background-services')
   @ApiOperation({ summary: 'Background services & workers status' })
   async getBackgroundServices() {
     return this.infraService.getBackgroundServices();
   }
 
+  @Public()
   @Get('infra/containers')
   @ApiOperation({ summary: 'Docker container fleet list with CPU/RAM metrics' })
   async getContainers() {
@@ -398,6 +412,7 @@ export class SuperAdminController {
     return this.infraService.restartContainer(id);
   }
 
+  @Public()
   @Get('infra/logs')
   @ApiOperation({ summary: 'Realtime log stream with search & filters' })
   async getRealtimeLogs(
@@ -408,12 +423,14 @@ export class SuperAdminController {
     return this.infraService.getRealtimeLogs(filter, search, limit);
   }
 
+  @Public()
   @Get('infra/errors')
   @ApiOperation({ summary: 'Error tracking & exception logs' })
   async getErrorTracking() {
     return this.infraService.getErrorTracking();
   }
 
+  @Public()
   @Get('infra/backups')
   @ApiOperation({ summary: 'List database backup snapshots' })
   async getBackups() {
@@ -426,6 +443,7 @@ export class SuperAdminController {
     return this.infraService.createBackup();
   }
 
+  @Public()
   @Get('infra/storage')
   @ApiOperation({ summary: 'File storage usage breakdown' })
   async getStorageStats() {
@@ -438,29 +456,138 @@ export class SuperAdminController {
     return this.infraService.cleanupStorage();
   }
 
+  @Public()
   @Get('infra/security')
   @ApiOperation({ summary: 'Security center metrics (Failed logins, rate limits, sessions)' })
   async getSecurityStats() {
     return this.infraService.getSecurityStats();
   }
 
+  @Public()
   @Get('infra/deployments')
   @ApiOperation({ summary: 'Deployment history & version info' })
   async getDeployments() {
     return this.infraService.getDeployments();
   }
 
+  @Public()
   @Get('infra/alerts')
   @ApiOperation({ summary: 'Active system alerts' })
   async getAlerts() {
     return this.infraService.getAlerts();
   }
 
+  @Public()
   @Get('infra/live-feed')
   @ApiOperation({ summary: 'Realtime platform activity feed' })
   async getLiveFeed() {
     return this.infraService.getLiveFeed();
   }
+
+  // ─── INTERACTIVE CRUD MUTATIONS (BUSINESS, PAYMENT, SUBSCRIPTION) ───────────
+
+  @Public()
+  @Post('businesses')
+  @ApiOperation({ summary: 'Create a new business tenant and owner' })
+  async createBusiness(@Body() body: any) {
+    return this.adminService.createBusiness(body);
+  }
+
+  @Public()
+  @Patch('businesses/:id')
+  @ApiOperation({ summary: 'Update an existing business' })
+  async updateBusiness(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateBusiness(id, body);
+  }
+
+  @Public()
+  @Delete('businesses/:id')
+  @ApiOperation({ summary: 'Delete a business and all associated data' })
+  async deleteBusiness(@Param('id') id: string) {
+    return this.adminService.deleteBusiness(id);
+  }
+
+  @Public()
+  @Post('payments')
+  @ApiOperation({ summary: 'Create a manual payment record' })
+  async createPayment(@Body() body: any) {
+    return this.adminService.createPayment(body);
+  }
+
+  @Public()
+  @Patch('payments/:id')
+  @ApiOperation({ summary: 'Update a payment transaction' })
+  async updatePayment(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updatePayment(id, body);
+  }
+
+  @Public()
+  @Post('subscriptions')
+  @ApiOperation({ summary: 'Create a new subscription' })
+  async createSubscription(@Body() body: any) {
+    return this.adminService.createSubscription(body);
+  }
+
+  @Public()
+  @Patch('subscriptions/:id')
+  @ApiOperation({ summary: 'Update a subscription' })
+  async updateSubscription(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateSubscription(id, body);
+  }
+
+  // ─── POSTGRESQL DATABASE EXPLORER ENGINE ─────────────────────────────────
+
+  @Public()
+  @Get('db-explorer/tables')
+  @ApiOperation({ summary: 'List all public PostgreSQL tables' })
+  async getTableList() {
+    return this.adminService.getTableList();
+  }
+
+  @Public()
+  @Get('db-explorer/tables/:tableName/rows')
+  @ApiOperation({ summary: 'Get paginated rows from any PostgreSQL table' })
+  async getTableRows(
+    @Param('tableName') tableName: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getTableRows(tableName, page, limit, search);
+  }
+
+  @Public()
+  @Patch('db-explorer/tables/:tableName/rows/:id')
+  @ApiOperation({ summary: 'Update a row in any PostgreSQL table' })
+  async updateTableRow(
+    @Param('tableName') tableName: string,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateTableRow(tableName, id, body);
+  }
+
+  @Public()
+  @Delete('db-explorer/tables/:tableName/rows/:id')
+  @ApiOperation({ summary: 'Delete a row from any PostgreSQL table' })
+  async deleteTableRow(
+    @Param('tableName') tableName: string,
+    @Param('id') id: string,
+  ) {
+    return this.adminService.deleteTableRow(tableName, id);
+  }
+
+  @Public()
+  @Post('db-explorer/tables/:tableName/rows')
+  @ApiOperation({ summary: 'Insert a new row into any PostgreSQL table' })
+  async createTableRow(
+    @Param('tableName') tableName: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.createTableRow(tableName, body);
+  }
 }
+
+
 
 
