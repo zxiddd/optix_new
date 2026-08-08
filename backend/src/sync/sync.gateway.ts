@@ -81,4 +81,12 @@ export class SyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
   }
+
+  emitToAll(eventName: string, payload: any) {
+    this.logger.log(`[EMIT GLOBAL ${eventName}]`);
+    if (this.server) {
+      this.server.emit(eventName, payload);
+    }
+  }
 }
+

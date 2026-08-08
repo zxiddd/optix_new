@@ -15,7 +15,11 @@ import {
   X,
   Search,
   User,
-  Power
+  Power,
+  Layers,
+  Radio,
+  Zap,
+  Smartphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,12 +29,15 @@ const navItems = [
   { icon: CreditCard, label: 'Payments', path: '/payments' },
   { icon: Ticket, label: 'Subscriptions', path: '/subscriptions' },
   { icon: Key, label: 'Activation Codes', path: '/activation-codes' },
-  { icon: BarChart3, label: 'Analytics', path: '/analytics' },
-  { icon: Bell, label: 'Notifications', path: '/notifications' },
+  { icon: Layers, label: 'Feature Flags', path: '/feature-flags' },
+  { icon: Radio, label: 'Remote Control', path: '/remote-management' },
+  { icon: Zap, label: 'Bulk Operations', path: '/bulk-actions' },
+  { icon: Smartphone, label: 'Device Fleet', path: '/devices' },
+  { icon: Server, label: 'Live Telemetry', path: '/server' },
   { icon: ScrollText, label: 'Audit Logs', path: '/logs' },
-  { icon: Server, label: 'Server Monitor', path: '/server' },
-  { icon: Settings, label: 'Settings', path: '/settings' },
+  { icon: Settings, label: 'Global Settings', path: '/settings' },
 ];
+
 
 const DashboardLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);

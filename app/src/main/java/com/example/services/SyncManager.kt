@@ -66,6 +66,7 @@ class SyncManager private constructor(context: Context) {
             val profileRepo = app.businessProfileRepository
             val qrRepo = app.paymentQrRepository
             val staffRepo = app.staffRepository
+            val subRepo = app.subscriptionRepository
 
             // 1. Push pending offline orders
             cloudRepo.pushPendingOfflineOrders(orderRepo)
@@ -75,11 +76,25 @@ class SyncManager private constructor(context: Context) {
             Log.d("OPTIX_FLOW", "[SYNC MANAGER PULL] Pulling since: $lastSyncTs")
             
             if (lastSyncTs == 0L) {
-                cloudRepo.syncCloudToLocal(catRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo)
+                cloudRepo.syncCloudToLocal(catRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo, subRepo)
             } else {
-                cloudRepo.syncPullIncremental(catRepo, itemRepo, orderRepo, profileRepo, lastSyncTs, qrRepo, staffRepo)
+                cloudRepo.syncPullIncremental(catRepo, itemRepo, orderRepo, profileRepo, lastSyncTs, qrRepo, staffRepo, subRepo)
             }
             
+            // 3. Update FeatureGate with latest local data
+            val sub = subRepo.getSubscriptionSync()
+            Log.d("OPTIX_FLOW", "[SYNC MANAGER] Updating FeatureGate with plan: ${sub?.planId ?: "TRIAL"}")
+            if (sub != null) {
+                val bills = orderRepo.getOrdersSync().size
+                val prods = itemRepo.getAllItemsSync().size
+                val updatedSub = if (sub.planId == "TRIAL") {
+                    sub.copy(billsUsed = bills, productsUsed = prods)
+                } else sub
+                com.example.services.FeatureGate.updateSubscription(updatedSub)
+            } else {
+                com.example.services.FeatureGate.updateSubscription(null)
+            }
+
             prefs.edit().putLong("last_sync_ts", System.currentTimeMillis()).apply()
         } catch (e: Exception) {
             Log.e("OPTIX_FLOW", "[SYNC MANAGER ERR] ${e.message}")

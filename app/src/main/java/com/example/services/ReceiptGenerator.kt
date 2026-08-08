@@ -125,8 +125,8 @@ class ReceiptGenerator {
         for (item in items) {
             if (item.pricingType == "WEIGHT_BASED") {
                 // Chicken Curry
-                // 0.625 kg x Rs.320/kg
-                // Rs.200
+                // 0.625 kg x 320/kg
+                // 200
                 val name = if (item.itemName.length > 30) item.itemName.substring(0, 27) + "..." else item.itemName
                 addText("$name\n")
                 val weightStr = String.format("%.3f %s", item.weight ?: 0.0, item.unit ?: "kg")
@@ -249,7 +249,8 @@ class ReceiptGenerator {
         items: List<Pair<String, Double>>,
         itemQuantities: Map<String, Int>,
         totalSales: Double,
-        numBills: Int
+        numBills: Int,
+        currency: String = "₹"
     ): ByteArray {
         val output = mutableListOf<Byte>()
 
@@ -267,7 +268,7 @@ class ReceiptGenerator {
         addLine()
 
         add(EscPosConstants.ALIGN_LEFT)
-        addText("Total Sales: Rs.${String.format("%.2f", totalSales)}\n")
+        addText("Total Sales: $currency${String.format("%.2f", totalSales)}\n")
         addText("Total Bills: $numBills\n")
         addLine()
 

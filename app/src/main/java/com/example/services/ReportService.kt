@@ -82,11 +82,12 @@ class ReportService(private val context: Context) {
         paint.color = Color.BLACK
         paint.textSize = 16f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("Rs.${metrics.totalSales.toInt()}", 55f, 200f, paint)
+        val currency = profile?.currency ?: "₹"
+        canvas.drawText("${currency}${metrics.totalSales.toInt()}", 55f, 200f, paint)
         val netSales = (metrics.totalSales - metrics.totalTax).coerceAtLeast(0.0)
-        canvas.drawText("Rs.${netSales.toInt()}", 185f, 200f, paint)
-        canvas.drawText("Rs.${(metrics.totalSales * 0.6).toInt()}", 315f, 200f, paint)
-        canvas.drawText("Rs.${(metrics.totalSales * 0.4).toInt()}", 445f, 200f, paint)
+        canvas.drawText("${currency}${netSales.toInt()}", 185f, 200f, paint)
+        canvas.drawText("${currency}${(metrics.totalSales * 0.6).toInt()}", 315f, 200f, paint)
+        canvas.drawText("${currency}${(metrics.totalSales * 0.4).toInt()}", 445f, 200f, paint)
 
         // ── 3. ORDERS METRICS ──
         paint.color = Color.parseColor("#F4F4F5")
@@ -109,9 +110,9 @@ class ReportService(private val context: Context) {
         paint.textSize = 15f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         canvas.drawText("${metrics.numBills}", 55f, 302f, paint)
-        canvas.drawText("Rs.${metrics.averageOrderValue.toInt()}", 185f, 302f, paint)
-        canvas.drawText("Rs.${(metrics.averageOrderValue * 2.5).toInt()}", 315f, 302f, paint)
-        canvas.drawText("Rs.${(metrics.averageOrderValue * 0.3).toInt()}", 445f, 302f, paint)
+        canvas.drawText("${currency}${metrics.averageOrderValue.toInt()}", 185f, 302f, paint)
+        canvas.drawText("${currency}${(metrics.averageOrderValue * 2.5).toInt()}", 315f, 302f, paint)
+        canvas.drawText("${currency}${(metrics.averageOrderValue * 0.3).toInt()}", 445f, 302f, paint)
 
         // ── 4. CUSTOMERS & OPERATIONS ──
         paint.color = Color.parseColor("#F4F4F5")
@@ -131,7 +132,7 @@ class ReportService(private val context: Context) {
         canvas.drawText("Returning: ${(metrics.numBills * 0.3).toInt()}", 55f, 395f, paint)
 
         canvas.drawText("Peak Hour: ${metrics.peakHour}", 320f, 375f, paint)
-        canvas.drawText("Tax Collected: Rs.${metrics.totalTax.toInt()}", 320f, 395f, paint)
+        canvas.drawText("Tax Collected: ${currency}${metrics.totalTax.toInt()}", 320f, 395f, paint)
 
         // ── 5. TOP PERFORMING PRODUCTS TABLE ──
         paint.color = Color.parseColor("#333333")
@@ -157,7 +158,7 @@ class ReportService(private val context: Context) {
             paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             canvas.drawText(item.name, 50f, yPos, paint)
             canvas.drawText("${item.quantity}", 380f, yPos, paint)
-            canvas.drawText("Rs.${item.totalRevenue.toInt()}", 480f, yPos, paint)
+            canvas.drawText("${currency}${item.totalRevenue.toInt()}", 480f, yPos, paint)
 
             paint.color = Color.parseColor("#F4F4F5")
             canvas.drawLine(40f, yPos + 6f, 555f, yPos + 6f, paint)

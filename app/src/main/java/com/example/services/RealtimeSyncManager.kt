@@ -316,14 +316,79 @@ class RealtimeSyncManager private constructor(context: Context) {
                             val profileRepo = app.businessProfileRepository
                             val existing = profileRepo.getProfileSync() ?: BusinessProfile()
                             val updated = existing.copy(lastResetBusinessDate = resetDate)
-                            profileRepo.saveProfile(updated)
-                            Log.d("OPTIX_FLOW", "[ROOM UPDATED] business.reset applied live (<200ms)")
+                    }
+                }
+            }
+
+            // 6.6. Feature Flags Updated Real-Time
+            socket?.on("feature_flags_updated") { args ->
+                if (args.isNotEmpty() && args[0] is JSONObject) {
+                    val obj = args[0] as JSONObject
+                    Log.d("OPTIX_FLOW", "[EVENT RECEIVED] feature_flags_updated -> $obj")
+                    val map = mutableMapOf<String, String>()
+                    val keys = obj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        if (k != "senderSocketId") {
+                            map[k] = obj.optString(k)
+                        }
+                    }
+                    FeatureGate.updateFeatureFlags(map)
+                }
+            }
+
+            // 6.7. Remote Commands Real-Time
+            socket?.on("remote_command") { args ->
+                if (args.isNotEmpty() && args[0] is JSONObject) {
+                    val obj = args[0] as JSONObject
+                    val action = obj.optString("action")
+                    val deviceId = obj.optString("deviceId")
+
+                    Log.d("OPTIX_FLOW", "[EVENT RECEIVED] remote_command -> Action: $action, Target Device: ${if (deviceId.isEmpty()) "ALL" else deviceId}")
+
+                    scope.launch {
+                        try {
+                            when (action) {
+                                "FORCE_SYNC", "FORCE_FULL_SYNC" -> {
+                                    SyncManager.getInstance(appContext).triggerSyncNow()
+                                }
+                                "REFRESH_SUBSCRIPTION" -> {
+                                    val sub = app.cloudRepository.getSubscription()
+                                    sub?.let {
+                                        app.subscriptionRepository.saveSubscription(it)
+                                        FeatureGate.updateSubscription(it)
+                                    }
+                                }
+                                "LOGOUT_ALL_DEVICES" -> {
+                                    app.authManager.clearSession()
+                                }
+                                "RESTART_SOCKET" -> {
+                                    socket?.disconnect()
+                                    socket?.connect()
+                                }
+                                "RECONNECT_WEBSOCKET" -> {
+                                    socket?.connect()
+                                }
+                                "CLEAR_CACHE" -> {
+                                    val imageLoader = coil.Coil.imageLoader(appContext)
+                                    imageLoader.diskCache?.clear()
+                                    imageLoader.memoryCache?.clear()
+                                }
+                                "REBUILD_LOCAL_DB" -> {
+                                    app.database.clearAllTables()
+                                    SyncManager.getInstance(appContext).triggerSyncNow()
+                                }
+                                "SEND_TEST_NOTIFICATION" -> {
+                                    Log.d("OPTIX_FLOW", "[TEST NOTIFICATION] Remote test notification received cleanly")
+                                }
+                            }
                         } catch (e: Exception) {
-                            Log.e("OPTIX_FLOW", "[EVENT ERR] business.reset error: ${e.message}")
+                            Log.e("OPTIX_FLOW", "[REMOTE COMMAND ERR] Action $action failed: ${e.message}")
                         }
                     }
                 }
             }
+
 
             // 7. Core Entity Events (Order / Product / Category)
             socket?.on("order.created") { args ->
@@ -703,6 +768,20 @@ class RealtimeSyncManager private constructor(context: Context) {
                             )
                             app.notificationRepository.insert(notif)
                             Log.d("OPTIX_FLOW", "[NOTIFICATION RECEIVED] Title: ${notif.title}")
+                        } catch (e: Exception) {}
+                    }
+                }
+            }
+
+            // 8. Subscription Updated
+            socket?.on("subscription_updated") { args ->
+                if (args.isNotEmpty() && args[0] is JSONObject) {
+                    val obj = args[0] as JSONObject
+                    Log.d("OPTIX_FLOW", "[EVENT RECEIVED] subscription_updated -> Refreshing FeatureGate")
+                    scope.launch {
+                        try {
+                            // Trigger a full sync pull to get latest subscription details
+                            SyncManager.getInstance(appContext).triggerSyncNow()
                         } catch (e: Exception) {}
                     }
                 }

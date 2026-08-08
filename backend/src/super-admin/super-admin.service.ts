@@ -580,10 +580,432 @@ export class SuperAdminService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // FEATURE FLAGS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getFeatureFlags(filters: { search?: string; level?: string; status?: string; page?: number; limit?: number }) {
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (filters.level) where.level = filters.level;
+    if (filters.status) where.status = filters.status;
+    if (filters.search) {
+      where.OR = [
+        { featureKey: { contains: filters.search, mode: 'insensitive' } },
+        { target: { contains: filters.search, mode: 'insensitive' } },
+        { notes: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, items] = await Promise.all([
+      this.prisma.featureFlag.count({ where }),
+      this.prisma.featureFlag.findMany({
+        where,
+        orderBy: [{ level: 'asc' }, { featureKey: 'asc' }],
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { items, meta: { total, page, lastPage: Math.ceil(total / limit) } };
+  }
+
+  async upsertFeatureFlag(data: {
+    featureKey: string;
+    status: 'ON' | 'OFF' | 'BETA' | 'MAINTENANCE';
+    level: 'GLOBAL' | 'COUNTRY' | 'PLAN' | 'BUSINESS';
+    target?: string;
+    notes?: string;
+    businessId?: string;
+  }) {
+    const targetVal = data.level === 'GLOBAL' ? null : (data.target || null);
+    const existing = await this.prisma.featureFlag.findFirst({
+      where: {
+        featureKey: data.featureKey,
+        level: data.level,
+        target: targetVal,
+      },
+    });
+
+    let flag: any;
+    if (existing) {
+      flag = await this.prisma.featureFlag.update({
+        where: { id: existing.id },
+        data: {
+          status: data.status,
+          notes: data.notes,
+          businessId: data.businessId || targetVal || null,
+        },
+      });
+      await this.writeAdminAuditLog(
+        data.businessId || 'GLOBAL',
+        'UPDATE_FEATURE_FLAG',
+        'FEATURE_FLAG',
+        flag.id,
+        { status: existing.status },
+        { status: flag.status, level: flag.level, featureKey: flag.featureKey }
+      );
+    } else {
+      flag = await this.prisma.featureFlag.create({
+        data: {
+          featureKey: data.featureKey,
+          status: data.status,
+          level: data.level,
+          target: targetVal,
+          notes: data.notes,
+          businessId: data.businessId || (data.level === 'BUSINESS' ? targetVal : null),
+        },
+      });
+      await this.writeAdminAuditLog(
+        data.businessId || 'GLOBAL',
+        'CREATE_FEATURE_FLAG',
+        'FEATURE_FLAG',
+        flag.id,
+        null,
+        { status: flag.status, level: flag.level, featureKey: flag.featureKey }
+      );
+    }
+
+    if (data.level === 'BUSINESS' && targetVal) {
+      this.syncGateway.emitToBusiness(targetVal, 'feature_flags_updated', { [data.featureKey]: data.status });
+    } else {
+      this.syncGateway.emitToAll('feature_flags_updated', { [data.featureKey]: data.status });
+    }
+
+    return flag;
+  }
+
+  async deleteFeatureFlag(id: string) {
+    const flag = await this.prisma.featureFlag.findUnique({ where: { id } });
+    if (!flag) throw new NotFoundException('Feature flag not found');
+
+    await this.prisma.featureFlag.delete({ where: { id } });
+    await this.writeAdminAuditLog(
+      flag.businessId || 'GLOBAL',
+      'DELETE_FEATURE_FLAG',
+      'FEATURE_FLAG',
+      id,
+      { featureKey: flag.featureKey, status: flag.status },
+      null
+    );
+
+    this.syncGateway.emitToAll('feature_flags_updated', { [flag.featureKey]: 'ON' });
+    return { success: true };
+  }
+
+  async getEffectiveFeatureFlags(businessId?: string) {
+    const allFlags = await this.prisma.featureFlag.findMany();
+    let business: any = null;
+
+    if (businessId) {
+      business = await this.prisma.business.findUnique({
+        where: { id: businessId },
+        include: { subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      });
+    }
+
+    const currentPlan = business?.subscriptions?.[0]?.planId || 'TRIAL';
+    const country = business?.country || 'India';
+
+    const resolved: Record<string, string> = {};
+
+    allFlags.filter(f => f.level === 'GLOBAL').forEach(f => {
+      resolved[f.featureKey] = f.status;
+    });
+
+    allFlags.filter(f => f.level === 'COUNTRY' && f.target?.toLowerCase() === country.toLowerCase()).forEach(f => {
+      resolved[f.featureKey] = f.status;
+    });
+
+    allFlags.filter(f => f.level === 'PLAN' && f.target?.toUpperCase() === currentPlan.toUpperCase()).forEach(f => {
+      resolved[f.featureKey] = f.status;
+    });
+
+    if (businessId) {
+      allFlags.filter(f => f.level === 'BUSINESS' && f.target === businessId).forEach(f => {
+        resolved[f.featureKey] = f.status;
+      });
+    }
+
+    return resolved;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // REMOTE COMMANDS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async sendRemoteCommand(data: {
+    command: string;
+    businessId: string;
+    deviceId?: string;
+    payload?: any;
+  }) {
+    const bus = await this.prisma.business.findUnique({ where: { id: data.businessId } });
+    if (!bus) throw new NotFoundException('Business not found');
+
+    const commandPayload = {
+      action: data.command,
+      deviceId: data.deviceId,
+      payload: data.payload || {},
+      timestamp: Date.now(),
+    };
+
+    this.syncGateway.emitToBusiness(data.businessId, 'remote_command', commandPayload);
+
+    await this.writeAdminAuditLog(
+      data.businessId,
+      'REMOTE_COMMAND',
+      'DEVICE',
+      data.deviceId || 'ALL',
+      null,
+      { command: data.command, payload: data.payload }
+    );
+
+    return { success: true, command: data.command, businessId: data.businessId };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BULK ACTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async executeBulkAction(data: {
+    action: string;
+    businessIds: string[];
+    payload?: any;
+  }) {
+    const results: any[] = [];
+
+    for (const bId of data.businessIds) {
+      try {
+        if (data.action === 'ACTIVATE' || data.action === 'SUSPEND' || data.action === 'RESUME') {
+          const status = data.action === 'ACTIVATE' || data.action === 'RESUME' ? 'ACTIVE' : 'SUSPENDED';
+          await this.prisma.subscription.updateMany({
+            where: { businessId: bId },
+            data: { status: status as any },
+          });
+          this.syncGateway.emitToBusiness(bId, 'subscription_updated', { status });
+        } else if (data.action === 'REFRESH_CONFIG' || data.action === 'FORCE_SYNC') {
+          this.syncGateway.emitToBusiness(bId, 'remote_command', { action: 'FORCE_SYNC', timestamp: Date.now() });
+        } else if (data.action === 'BROADCAST_NOTIFICATION' || data.action === 'ANNOUNCEMENT') {
+          const notif = await this.prisma.notification.create({
+            data: {
+              businessId: bId,
+              title: data.payload?.title || 'System Announcement',
+              message: data.payload?.message || 'Important update from Optix Team',
+              type: 'SYSTEM',
+              severity: data.payload?.severity || 'INFO',
+            },
+          });
+          this.syncGateway.emitToBusiness(bId, 'notification_created', notif);
+        } else if (data.action === 'FEATURE_FLAG_UPDATE') {
+          if (data.payload?.featureKey && data.payload?.status) {
+            await this.upsertFeatureFlag({
+              featureKey: data.payload.featureKey,
+              status: data.payload.status,
+              level: 'BUSINESS',
+              target: bId,
+              businessId: bId,
+            });
+          }
+        }
+
+        await this.writeAdminAuditLog(bId, `BULK_${data.action}`, 'BUSINESS', bId, null, data.payload);
+        results.push({ businessId: bId, success: true });
+      } catch (e: any) {
+        results.push({ businessId: bId, success: false, error: e.message });
+      }
+    }
+
+    return { processed: results.length, results };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GLOBAL CONFIG & SETTINGS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getGlobalConfig() {
+    let cfg = await this.prisma.globalConfig.findUnique({ where: { id: 'GLOBAL' } });
+    if (!cfg) {
+      cfg = await this.prisma.globalConfig.create({
+        data: { id: 'GLOBAL' },
+      });
+    }
+    return cfg;
+  }
+
+  async updateGlobalConfig(data: any) {
+    const existing = await this.getGlobalConfig();
+    const updated = await this.prisma.globalConfig.update({
+      where: { id: 'GLOBAL' },
+      data: {
+        maintenanceMode: data.maintenanceMode !== undefined ? data.maintenanceMode : existing.maintenanceMode,
+        maintenanceMessage: data.maintenanceMessage ?? existing.maintenanceMessage,
+        minSupportedAppVersion: data.minSupportedAppVersion ?? existing.minSupportedAppVersion,
+        latestStableVersion: data.latestStableVersion ?? existing.latestStableVersion,
+        forceUpdate: data.forceUpdate !== undefined ? data.forceUpdate : existing.forceUpdate,
+        apiEndpoint: data.apiEndpoint ?? existing.apiEndpoint,
+        webSocketEndpoint: data.webSocketEndpoint ?? existing.webSocketEndpoint,
+        supportEmail: data.supportEmail ?? existing.supportEmail,
+        supportPhone: data.supportPhone ?? existing.supportPhone,
+        supportWhatsApp: data.supportWhatsApp ?? existing.supportWhatsApp,
+      },
+    });
+
+    await this.writeAdminAuditLog('GLOBAL', 'UPDATE_GLOBAL_CONFIG', 'SYSTEM', 'GLOBAL', existing, updated);
+    this.syncGateway.emitToAll('global_config_updated', updated);
+    return updated;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIVE STATUS & TELEMETRY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getLiveStatus() {
+    const now = new Date();
+    const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    const [onlineDevices, totalDevices, pendingSyncs, failedSyncs, globalConfig, versionStats] = await Promise.all([
+      this.prisma.device.count({ where: { lastSeen: { gte: fiveMinsAgo } } }),
+      this.prisma.device.count(),
+      this.prisma.syncQueue.count({ where: { status: 'PENDING' } }),
+      this.prisma.syncQueue.count({ where: { status: 'FAILED' } }),
+      this.getGlobalConfig(),
+      this.prisma.device.groupBy({
+        by: ['appVersion'],
+        _count: true,
+        where: { appVersion: { not: null } },
+      }),
+    ]);
+
+    return {
+      backendVersion: '1.2.0-enterprise',
+      serverTime: now.toISOString(),
+      maintenanceMode: globalConfig.maintenanceMode,
+      minSupportedAppVersion: globalConfig.minSupportedAppVersion,
+      latestStableVersion: globalConfig.latestStableVersion,
+      connectedDevices: onlineDevices,
+      totalDevices,
+      syncQueue: {
+        pending: pendingSyncs,
+        failed: failedSyncs,
+      },
+      versionDistribution: versionStats.map(v => ({
+        version: v.appVersion || '1.0.0',
+        count: v._count,
+      })),
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEVICE MANAGEMENT
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async getDevices(filters: {
+    businessId?: string;
+    search?: string;
+    connectionStatus?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (filters.businessId) where.businessId = filters.businessId;
+    if (filters.connectionStatus) where.connectionStatus = filters.connectionStatus;
+    if (filters.search) {
+      where.OR = [
+        { deviceName: { contains: filters.search, mode: 'insensitive' } },
+        { deviceModel: { contains: filters.search, mode: 'insensitive' } },
+        { ipAddress: { contains: filters.search, mode: 'insensitive' } },
+        { business: { name: { contains: filters.search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    const [total, items] = await Promise.all([
+      this.prisma.device.count({ where }),
+      this.prisma.device.findMany({
+        where,
+        include: {
+          business: { select: { id: true, name: true } },
+          user: { select: { email: true } },
+        },
+        orderBy: { lastSeen: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    const enrichedItems = items.map(d => ({
+      ...d,
+      connectionStatus: d.lastSeen >= fiveMinsAgo ? 'ONLINE' : 'OFFLINE',
+    }));
+
+    return { items: enrichedItems, meta: { total, page, lastPage: Math.ceil(total / limit) } };
+  }
+
+  async updateDeviceTelemetry(deviceId: string, data: {
+    appVersion?: string;
+    batteryLevel?: number;
+    ipAddress?: string;
+    currentScreen?: string;
+  }) {
+    return this.prisma.device.update({
+      where: { id: deviceId },
+      data: {
+        appVersion: data.appVersion,
+        batteryLevel: data.batteryLevel,
+        ipAddress: data.ipAddress,
+        currentScreen: data.currentScreen,
+        connectionStatus: 'ONLINE',
+        lastSeen: new Date(),
+      },
+    });
+  }
+
+  async remoteLogoutDevice(deviceId: string) {
+    const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device) throw new NotFoundException('Device not found');
+
+    await this.prisma.refreshToken.updateMany({
+      where: { deviceId },
+      data: { revokedAt: new Date() },
+    });
+
+    await this.prisma.device.update({
+      where: { id: deviceId },
+      data: { connectionStatus: 'OFFLINE' },
+    });
+
+    this.syncGateway.emitToBusiness(device.businessId, 'remote_command', {
+      action: 'LOGOUT_ALL_DEVICES',
+      deviceId: deviceId,
+      timestamp: Date.now(),
+    });
+
+    await this.writeAdminAuditLog(
+      device.businessId,
+      'REMOTE_LOGOUT_DEVICE',
+      'DEVICE',
+      deviceId,
+      null,
+      { deviceName: device.deviceName }
+    );
+
+    return { success: true, deviceId };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // PRIVATE HELPERS
   // ─────────────────────────────────────────────────────────────────────────
 
   private async writeAdminAuditLog(
+
     businessId: string,
     action: string,
     entity: string,

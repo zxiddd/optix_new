@@ -8,6 +8,12 @@ import Payments from '@/pages/Payments';
 import PaymentDetail from '@/pages/PaymentDetail';
 import Subscriptions from '@/pages/Subscriptions';
 import ActivationCodes from '@/pages/ActivationCodes';
+import FeatureFlags from '@/pages/FeatureFlags';
+import RemoteManagement from '@/pages/RemoteManagement';
+import BulkActions from '@/pages/BulkActions';
+import GlobalSettings from '@/pages/GlobalSettings';
+import LiveStatus from '@/pages/LiveStatus';
+import DeviceManagement from '@/pages/DeviceManagement';
 import AuditLogs from '@/pages/AuditLogs';
 
 const App: React.FC = () => {
@@ -22,6 +28,12 @@ const App: React.FC = () => {
           <Route path="payments/:id" element={<PaymentDetail />} />
           <Route path="subscriptions" element={<Subscriptions />} />
           <Route path="activation-codes" element={<ActivationCodes />} />
+          <Route path="feature-flags" element={<FeatureFlags />} />
+          <Route path="remote-management" element={<RemoteManagement />} />
+          <Route path="bulk-actions" element={<BulkActions />} />
+          <Route path="settings" element={<GlobalSettings />} />
+          <Route path="server" element={<LiveStatus />} />
+          <Route path="devices" element={<DeviceManagement />} />
           <Route path="logs" element={<AuditLogs />} />
           <Route path="*" element={<div className="p-8 text-center text-red-500 font-black">404 - PAGE NOT FOUND (PATH: {window.location.pathname})</div>} />
         </Route>

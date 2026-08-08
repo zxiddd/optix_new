@@ -225,20 +225,26 @@ model Permission {
 }
 
 model Device {
-  id             String   @id @default(uuid())
-  businessId     String
-  business       Business @relation(fields: [businessId], references: [id])
-  userId         String?
-  user           User?    @relation(fields: [userId], references: [id])
-  deviceName     String
-  deviceModel    String?
-  androidVersion String?
-  lastSeen       DateTime @default(now())
-  pushToken      String?
+  id               String   @id @default(uuid())
+  businessId       String
+  business         Business @relation(fields: [businessId], references: [id])
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id])
+  deviceName       String
+  deviceModel      String?
+  androidVersion   String?
+  appVersion       String?  @default("1.0.0")
+  batteryLevel     Int?     @default(100)
+  ipAddress        String?
+  currentScreen    String?  @default("Main")
+  connectionStatus String   @default("ONLINE") // ONLINE, OFFLINE
+  lastSeen         DateTime @default(now())
+  pushToken        String?
 
   refreshTokens   RefreshToken[]
   billingSessions BillingSession[]
 }
+
 
 model RefreshToken {
   id          String   @id @default(uuid())
@@ -530,12 +536,35 @@ model SyncQueue {
 }
 
 model FeatureFlag {
-  id          String   @id @default(uuid())
-  businessId  String
-  business    Business @relation(fields: [businessId], references: [id])
-  featureKey  String   // e.g. "INVENTORY", "AI", "QR_ORDERING"
-  isEnabled   Boolean  @default(true)
+  id            String    @id @default(uuid())
+  businessId    String?
+  business      Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  featureKey    String    // e.g. "BILLING", "PRODUCTS", "AI_MENU_IMPORT"
+  status        String    @default("ON") // ON, OFF, BETA, MAINTENANCE
+  level         String    @default("GLOBAL") // GLOBAL, COUNTRY, PLAN, BUSINESS
+  target        String?   // null for GLOBAL, or country name, plan name, or businessId
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([featureKey, level, target])
 }
+
+model GlobalConfig {
+  id                     String   @id @default("GLOBAL")
+  maintenanceMode        Boolean  @default(false)
+  maintenanceMessage     String   @default("System under maintenance. Please try again shortly.")
+  minSupportedAppVersion String   @default("1.0.0")
+  latestStableVersion    String   @default("1.0.0")
+  forceUpdate            Boolean  @default(false)
+  apiEndpoint            String   @default("https://api.optixapp.in")
+  webSocketEndpoint      String   @default("https://api.optixapp.in/events")
+  supportEmail           String   @default("support@optixapp.in")
+  supportPhone           String   @default("+919876543210")
+  supportWhatsApp        String   @default("+919876543210")
+  updatedAt              DateTime @updatedAt
+}
+
 
 model ApiKey {
   id          String   @id @default(uuid())

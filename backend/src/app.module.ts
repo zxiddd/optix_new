@@ -14,6 +14,8 @@ import { OrdersModule } from './orders/orders.module';
 import { StaffModule } from './staff/staff.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { PaymentQrModule } from './payment-qr/payment-qr.module';
+import { PaymentsModule } from './payments/payments.module';
+import { SuperAdminModule } from './super-admin/super-admin.module';
 
 @Module({
   imports: [
@@ -23,6 +25,10 @@ import { PaymentQrModule } from './payment-qr/payment-qr.module';
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
+    }),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'admin-dist'),
+      serveRoot: '/admin',
     }),
     PrismaModule,
     AuthModule,
@@ -36,6 +42,8 @@ import { PaymentQrModule } from './payment-qr/payment-qr.module';
     StaffModule,
     SubscriptionsModule,
     PaymentQrModule,
+    PaymentsModule,
+    SuperAdminModule,
   ],
 })
 export class AppModule {}

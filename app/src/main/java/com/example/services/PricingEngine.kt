@@ -17,8 +17,8 @@ object PricingEngine {
                 planId = "STARTER",
                 planName = "Starter",
                 monthlyPrice = 499.0,
-                yearlyPrice = 4849.0, // (499 * 12) * 0.9 (approx)
-                currency = "INR",
+                yearlyPrice = 4849.0,
+                currency = "₹",
                 features = listOf(
                     "Unlimited Billing", "Unlimited Products", "Unlimited Categories",
                     "Weight Based Products", "Bluetooth Printing", "Offline Billing",
@@ -34,7 +34,7 @@ object PricingEngine {
                 planName = "Growth",
                 monthlyPrice = 999.0,
                 yearlyPrice = 9709.0,
-                currency = "INR",
+                currency = "₹",
                 features = listOf(
                     "Everything in Starter", "Unlimited Staff", "Permissions & Sessions",
                     "Inventory Management", "Expense Tracking", "Customer CRM",
@@ -82,9 +82,9 @@ object PricingEngine {
 
     fun getCurrencyForCountry(country: String): String {
         return when (country) {
-            "India" -> "INR"
+            "India" -> "₹"
             "Saudi Arabia" -> "SAR"
-            else -> "INR"
+            else -> "₹"
         }
     }
 

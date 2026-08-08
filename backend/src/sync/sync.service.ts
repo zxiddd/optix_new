@@ -108,10 +108,15 @@ export class SyncService {
   async pull(businessId: string, lastSyncTimestamp: number) {
     const lastDate = new Date(Number(lastSyncTimestamp) || 0);
 
-    const [business, categories, products, orders, staff, paymentQrs, customers, expenses] = await Promise.all([
+    const [business, subscription, categories, products, orders, staff, paymentQrs, customers, expenses] = await Promise.all([
       this.prisma.business.findUnique({
         where: { id: businessId },
         include: { settings: true, receiptSettings: true, printerSettings: true },
+      }),
+      this.prisma.subscription.findFirst({
+        where: { businessId },
+        include: { plan: true },
+        orderBy: { createdAt: 'desc' },
       }),
       this.prisma.category.findMany({
         where: {
@@ -191,6 +196,7 @@ export class SyncService {
 
     return {
       business,
+      subscription,
       categories,
       products: formattedProducts,
       orders: formattedOrders,
@@ -203,10 +209,15 @@ export class SyncService {
   }
 
   async fullDump(businessId: string) {
-    const [business, categories, products, orders, staff, paymentQrs, customers, expenses, sessions, activityLogs] = await Promise.all([
+    const [business, subscription, categories, products, orders, staff, paymentQrs, customers, expenses, sessions, activityLogs] = await Promise.all([
       this.prisma.business.findUnique({
         where: { id: businessId },
         include: { settings: true, receiptSettings: true, printerSettings: true },
+      }),
+      this.prisma.subscription.findFirst({
+        where: { businessId },
+        include: { plan: true },
+        orderBy: { createdAt: 'desc' },
       }),
       this.prisma.category.findMany({ where: { businessId, isDeleted: false } }),
       this.prisma.product.findMany({ where: { businessId, isDeleted: false } }),
@@ -274,6 +285,7 @@ export class SyncService {
 
     return {
       business,
+      subscription,
       categories,
       products: formattedProducts,
       orders: formattedOrders,

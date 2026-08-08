@@ -1,6 +1,6 @@
 import { Controller, Post, Body, UseGuards, Request, Headers, BadRequestException, RawBodyRequest } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AtGuard } from '../auth/guards/at.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Payments')
@@ -9,7 +9,7 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AtGuard)
   @Post('create-order')
   @ApiOperation({ summary: 'Create a Razorpay order' })
   async createOrder(
@@ -20,7 +20,7 @@ export class PaymentsController {
   }
 
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AtGuard)
   @Post('verify')
   @ApiOperation({ summary: 'Verify Razorpay payment signature' })
   async verifyPayment(

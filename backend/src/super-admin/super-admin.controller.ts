@@ -224,9 +224,116 @@ export class SuperAdminController {
     return this.adminService.getRevenueStats();
   }
 
-  @Get('stats')
-  @ApiOperation({ summary: 'Get SaaS dashboard stats' })
-  async getStats() {
-    return this.adminService.getDashboardStats();
+  // ─── FEATURE FLAGS ─────────────────────────────────────────────────────────
+
+  @Get('feature-flags')
+  @ApiOperation({ summary: 'List feature flags with search & filters' })
+  async getFeatureFlags(
+    @Query('search') search?: string,
+    @Query('level') level?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.adminService.getFeatureFlags({ search, level, status, page, limit });
+  }
+
+  @Post('feature-flags')
+  @ApiOperation({ summary: 'Create or update a feature flag rule' })
+  async upsertFeatureFlag(
+    @Body() body: {
+      featureKey: string;
+      status: 'ON' | 'OFF' | 'BETA' | 'MAINTENANCE';
+      level: 'GLOBAL' | 'COUNTRY' | 'PLAN' | 'BUSINESS';
+      target?: string;
+      notes?: string;
+      businessId?: string;
+    },
+  ) {
+    return this.adminService.upsertFeatureFlag(body);
+  }
+
+  @Delete('feature-flags/:id')
+  @ApiOperation({ summary: 'Delete a feature flag rule' })
+  async deleteFeatureFlag(@Param('id') id: string) {
+    return this.adminService.deleteFeatureFlag(id);
+  }
+
+  @Get('effective-feature-flags')
+  @ApiOperation({ summary: 'Get resolved feature flags for a business' })
+  async getEffectiveFeatureFlags(@Query('businessId') businessId?: string) {
+    return this.adminService.getEffectiveFeatureFlags(businessId);
+  }
+
+  // ─── REMOTE COMMANDS ───────────────────────────────────────────────────────
+
+  @Post('remote-command')
+  @ApiOperation({ summary: 'Send a remote command to a business or device' })
+  async sendRemoteCommand(
+    @Body() body: {
+      command: string;
+      businessId: string;
+      deviceId?: string;
+      payload?: any;
+    },
+  ) {
+    return this.adminService.sendRemoteCommand(body);
+  }
+
+  // ─── BULK ACTIONS ──────────────────────────────────────────────────────────
+
+  @Post('bulk-action')
+  @ApiOperation({ summary: 'Run a bulk operation on multiple businesses' })
+  async executeBulkAction(
+    @Body() body: {
+      action: string;
+      businessIds: string[];
+      payload?: any;
+    },
+  ) {
+    return this.adminService.executeBulkAction(body);
+  }
+
+  // ─── GLOBAL CONFIG & SETTINGS ──────────────────────────────────────────────
+
+  @Get('global-config')
+  @ApiOperation({ summary: 'Get global system settings & version rules' })
+  async getGlobalConfig() {
+    return this.adminService.getGlobalConfig();
+  }
+
+  @Patch('global-config')
+  @ApiOperation({ summary: 'Update global system settings' })
+  async updateGlobalConfig(@Body() body: any) {
+    return this.adminService.updateGlobalConfig(body);
+  }
+
+  // ─── LIVE STATUS & MONITORING ──────────────────────────────────────────────
+
+  @Get('live-status')
+  @ApiOperation({ summary: 'Get live platform health and telemetry' })
+  async getLiveStatus() {
+    return this.adminService.getLiveStatus();
+  }
+
+  // ─── DEVICE MANAGEMENT ─────────────────────────────────────────────────────
+
+  @Get('devices')
+  @ApiOperation({ summary: 'List connected devices with telemetry' })
+  async getDevices(
+    @Query('businessId') businessId?: string,
+    @Query('search') search?: string,
+    @Query('connectionStatus') connectionStatus?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.adminService.getDevices({ businessId, search, connectionStatus, page, limit });
+  }
+
+  @Post('devices/:id/remote-logout')
+  @ApiOperation({ summary: 'Remote logout a connected device' })
+  async remoteLogoutDevice(@Param('id') id: string) {
+    return this.adminService.remoteLogoutDevice(id);
   }
 }
+

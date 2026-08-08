@@ -176,9 +176,10 @@ class PrinterManager private constructor(private val context: Context) {
         itemQuantities: Map<String, Int>,
         totalSales: Double,
         numBills: Int,
-        shouldPrint: Boolean = true
+        shouldPrint: Boolean = true,
+        currency: String = "₹"
     ): String {
-        val bytes = generator.generateSalesSummaryEscPosBytes(businessName, timeframe, items, itemQuantities, totalSales, numBills)
+        val bytes = generator.generateSalesSummaryEscPosBytes(businessName, timeframe, items, itemQuantities, totalSales, numBills, currency)
         
         if (shouldPrint) {
             if (ensureConnection()) {
@@ -191,8 +192,8 @@ class PrinterManager private constructor(private val context: Context) {
             append("$businessName\n")
             append("Period: $timeframe\n")
             append("--------------------------------\n")
-            append("Total Sales: Rs.${totalSales.toInt()}\n")
             append("Total Bills: $numBills\n")
+            append("Total Sales: $currency${totalSales.toInt()}\n")
             append("--------------------------------\n")
             for (item in items) {
                 append("${item.first.padEnd(18)} ${itemQuantities[item.first]}  ${item.second.toInt()}\n")
