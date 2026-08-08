@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard,
+
   Store,
   CreditCard,
   Ticket,
@@ -20,6 +21,9 @@ import {
   Radio,
   Zap,
   Smartphone,
+  Terminal,
+  ShieldCheck,
+  AlertOctagon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -33,10 +37,13 @@ const navItems = [
   { icon: Radio, label: 'Remote Control', path: '/remote-management' },
   { icon: Zap, label: 'Bulk Operations', path: '/bulk-actions' },
   { icon: Smartphone, label: 'Device Fleet', path: '/devices' },
-  { icon: Server, label: 'Live Telemetry', path: '/server' },
-  { icon: ScrollText, label: 'Audit Logs', path: '/logs' },
+  { icon: Server, label: 'Server Operations', path: '/server' },
+  { icon: Terminal, label: 'Log Center', path: '/logs' },
+  { icon: ShieldCheck, label: 'Security & Backups', path: '/security-backups' },
+  { icon: AlertOctagon, label: 'Alerts & Containers', path: '/alerts' },
   { icon: Settings, label: 'Global Settings', path: '/settings' },
 ];
+
 
 
 const DashboardLayout: React.FC = () => {

@@ -9,13 +9,19 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 
+import { InfraMonitoringService } from './infra-monitoring.service';
+
 @ApiTags('Super Admin')
 @Controller('super-admin')
 @UseGuards(AtGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN)
 @ApiBearerAuth()
 export class SuperAdminController {
-  constructor(private readonly adminService: SuperAdminService) {}
+  constructor(
+    private readonly adminService: SuperAdminService,
+    private readonly infraService: InfraMonitoringService,
+  ) {}
+
 
   // ─── BUSINESSES ────────────────────────────────────────────────────────────
 
@@ -335,5 +341,120 @@ export class SuperAdminController {
   async remoteLogoutDevice(@Param('id') id: string) {
     return this.adminService.remoteLogoutDevice(id);
   }
+
+  // ─── INFRASTRUCTURE & OPERATIONS MONITORING ─────────────────────────────────
+
+  @Get('infra/overview')
+  @ApiOperation({ summary: 'Platform status overview (Backend, DB, Redis, Socket, Storage, SSL)' })
+  async getInfraOverview() {
+    return this.infraService.getOverview();
+  }
+
+  @Get('infra/server-health')
+  @ApiOperation({ summary: 'Server health metrics (CPU, RAM, Disk, IOPS, Network, Load Avg)' })
+  async getServerHealth() {
+    return this.infraService.getServerHealth();
+  }
+
+  @Get('infra/db-monitor')
+  @ApiOperation({ summary: 'PostgreSQL database monitor (Connections, Size, Tables, Slow Queries)' })
+  async getDbMonitor() {
+    return this.infraService.getDbMonitor();
+  }
+
+  @Get('infra/websocket-monitor')
+  @ApiOperation({ summary: 'WebSocket Gateway monitor (Connections, Throughput, Latency)' })
+  async getWebSocketMonitor() {
+    return this.infraService.getWebSocketMonitor();
+  }
+
+  @Get('infra/api-monitor')
+  @ApiOperation({ summary: 'API monitor (RPM, Latency, P95/P99, Status code distribution)' })
+  async getApiMonitor() {
+    return this.infraService.getApiMonitor();
+  }
+
+  @Get('infra/background-services')
+  @ApiOperation({ summary: 'Background services & workers status' })
+  async getBackgroundServices() {
+    return this.infraService.getBackgroundServices();
+  }
+
+  @Get('infra/containers')
+  @ApiOperation({ summary: 'Docker container fleet list with CPU/RAM metrics' })
+  async getContainers() {
+    return this.infraService.getContainers();
+  }
+
+  @Post('infra/containers/:id/restart')
+  @ApiOperation({ summary: 'Restart a Docker container' })
+  async restartContainer(@Param('id') id: string) {
+    return this.infraService.restartContainer(id);
+  }
+
+  @Get('infra/logs')
+  @ApiOperation({ summary: 'Realtime log stream with search & filters' })
+  async getRealtimeLogs(
+    @Query('filter') filter?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.infraService.getRealtimeLogs(filter, search, limit);
+  }
+
+  @Get('infra/errors')
+  @ApiOperation({ summary: 'Error tracking & exception logs' })
+  async getErrorTracking() {
+    return this.infraService.getErrorTracking();
+  }
+
+  @Get('infra/backups')
+  @ApiOperation({ summary: 'List database backup snapshots' })
+  async getBackups() {
+    return this.infraService.getBackups();
+  }
+
+  @Post('infra/backups/create')
+  @ApiOperation({ summary: 'Create manual database backup snapshot' })
+  async createBackup() {
+    return this.infraService.createBackup();
+  }
+
+  @Get('infra/storage')
+  @ApiOperation({ summary: 'File storage usage breakdown' })
+  async getStorageStats() {
+    return this.infraService.getStorageStats();
+  }
+
+  @Post('infra/storage/cleanup')
+  @ApiOperation({ summary: 'Cleanup temporary & export files' })
+  async cleanupStorage() {
+    return this.infraService.cleanupStorage();
+  }
+
+  @Get('infra/security')
+  @ApiOperation({ summary: 'Security center metrics (Failed logins, rate limits, sessions)' })
+  async getSecurityStats() {
+    return this.infraService.getSecurityStats();
+  }
+
+  @Get('infra/deployments')
+  @ApiOperation({ summary: 'Deployment history & version info' })
+  async getDeployments() {
+    return this.infraService.getDeployments();
+  }
+
+  @Get('infra/alerts')
+  @ApiOperation({ summary: 'Active system alerts' })
+  async getAlerts() {
+    return this.infraService.getAlerts();
+  }
+
+  @Get('infra/live-feed')
+  @ApiOperation({ summary: 'Realtime platform activity feed' })
+  async getLiveFeed() {
+    return this.infraService.getLiveFeed();
+  }
 }
+
 

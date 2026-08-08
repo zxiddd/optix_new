@@ -15,6 +15,10 @@ import GlobalSettings from '@/pages/GlobalSettings';
 import LiveStatus from '@/pages/LiveStatus';
 import DeviceManagement from '@/pages/DeviceManagement';
 import AuditLogs from '@/pages/AuditLogs';
+import ServerMonitor from '@/pages/ServerMonitor';
+import ContainerLogs from '@/pages/ContainerLogs';
+import SecurityBackups from '@/pages/SecurityBackups';
+import SystemAlerts from '@/pages/SystemAlerts';
 
 const App: React.FC = () => {
   return (
@@ -32,9 +36,11 @@ const App: React.FC = () => {
           <Route path="remote-management" element={<RemoteManagement />} />
           <Route path="bulk-actions" element={<BulkActions />} />
           <Route path="settings" element={<GlobalSettings />} />
-          <Route path="server" element={<LiveStatus />} />
+          <Route path="server" element={<ServerMonitor />} />
           <Route path="devices" element={<DeviceManagement />} />
-          <Route path="logs" element={<AuditLogs />} />
+          <Route path="logs" element={<ContainerLogs />} />
+          <Route path="security-backups" element={<SecurityBackups />} />
+          <Route path="alerts" element={<SystemAlerts />} />
           <Route path="*" element={<div className="p-8 text-center text-red-500 font-black">404 - PAGE NOT FOUND (PATH: {window.location.pathname})</div>} />
         </Route>
       </Routes>
