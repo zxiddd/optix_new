@@ -1,4 +1,6 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import axios from 'axios';
 import {
   Users,
   Activity,
@@ -21,14 +23,11 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar
 } from 'recharts';
-import { mockStats, mockRevenueData, mockActivities } from '@/services/mockData';
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
+
+const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
 const StatCard: React.FC<{
   title: string;
@@ -62,6 +61,27 @@ const StatCard: React.FC<{
 );
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
+
+  const { data: stats, isLoading, refetch } = useQuery({
+    queryKey: ['dashboard-overview'],
+    queryFn: async () => {
+      const { data } = await axios.get('https://api.optixapp.in/api/v1/super-admin/dashboard-overview', authHeader());
+      return data;
+    },
+    refetchInterval: 5000,
+  });
+
+  const totalBusinesses = stats?.totalBusinesses ?? 0;
+  const onlineBusinesses = stats?.onlineBusinesses ?? 0;
+  const monthlyRevenue = stats?.monthlyRevenue ?? 0;
+  const socketConnections = stats?.socketConnections ?? 0;
+  const trialUsers = stats?.trialUsers ?? 0;
+  const starterUsers = stats?.starterUsers ?? 0;
+  const growthUsers = stats?.growthUsers ?? 0;
+  const revenueTrend = stats?.revenueTrend || [{ name: 'Current', value: monthlyRevenue }];
+  const activities = stats?.activities || [];
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -70,11 +90,8 @@ const Dashboard: React.FC = () => {
           <p className="text-muted-foreground mt-1 font-medium">Real-time platform metrics and ecosystem health.</p>
         </div>
         <div className="flex gap-3">
-          <button className="bg-muted hover:bg-muted/80 border border-border px-4 py-2 rounded-xl text-sm font-bold transition-colors">
-            Last 30 Days
-          </button>
-          <button className="bg-primary text-black px-4 py-2 rounded-xl text-sm font-black hover:opacity-90 transition-all shadow-lg shadow-primary/20">
-            EXPORT DATA
+          <button onClick={() => refetch()} className="bg-muted hover:bg-muted/80 border border-border px-4 py-2 rounded-xl text-sm font-bold transition-colors">
+            Realtime Sync
           </button>
         </div>
       </div>
@@ -83,31 +100,31 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Total Businesses"
-          value={mockStats.totalBusinesses}
+          value={totalBusinesses}
           icon={Users}
-          trend={{ value: "+12%", positive: true }}
-          subtitle="Lifetime"
+          trend={{ value: "Live", positive: true }}
+          subtitle="PostgreSQL Count"
         />
         <StatCard
-          title="Online Now"
-          value={mockStats.onlineBusinesses}
+          title="Online Sockets"
+          value={onlineBusinesses}
           icon={Activity}
           color="green-500"
-          subtitle="Active Nodes"
+          subtitle="Connected Nodes"
         />
         <StatCard
           title="Monthly Revenue"
-          value={`₹${(mockStats.monthlyRevenue / 100000).toFixed(1)}L`}
+          value={`₹${monthlyRevenue.toLocaleString('en-IN')}`}
           icon={TrendingUp}
-          trend={{ value: "+24%", positive: true }}
-          subtitle="Projected"
+          trend={{ value: "Razorpay", positive: true }}
+          subtitle="Captured"
         />
         <StatCard
           title="Socket Connections"
-          value={mockStats.socketConnections}
+          value={socketConnections}
           icon={Zap}
           color="yellow-500"
-          subtitle="Live Sync"
+          subtitle="Sync Gateway"
         />
       </div>
 
@@ -117,21 +134,21 @@ const Dashboard: React.FC = () => {
           <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center font-black text-xl">T</div>
           <div>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Trial Users</p>
-            <p className="text-2xl font-black leading-tight">{mockStats.trialUsers}</p>
+            <p className="text-2xl font-black leading-tight">{trialUsers}</p>
           </div>
         </div>
         <div className="bg-card border border-border p-4 rounded-2xl flex items-center gap-4">
           <div className="w-12 h-12 bg-primary/10 text-primary rounded-xl flex items-center justify-center font-black text-xl italic">S</div>
           <div>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Starter Users</p>
-            <p className="text-2xl font-black leading-tight">{mockStats.starterUsers}</p>
+            <p className="text-2xl font-black leading-tight">{starterUsers}</p>
           </div>
         </div>
         <div className="bg-card border border-border p-4 rounded-2xl flex items-center gap-4">
           <div className="w-12 h-12 bg-yellow-500/10 text-yellow-500 rounded-xl flex items-center justify-center font-black text-xl italic">G</div>
           <div>
             <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">Growth Users</p>
-            <p className="text-2xl font-black leading-tight">{mockStats.growthUsers}</p>
+            <p className="text-2xl font-black leading-tight">{growthUsers}</p>
           </div>
         </div>
       </div>
@@ -150,7 +167,7 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={mockRevenueData}>
+              <AreaChart data={revenueTrend}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#FF6B00" stopOpacity={0.3}/>
@@ -169,7 +186,7 @@ const Dashboard: React.FC = () => {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#71717a', fontSize: 12, fontWeight: 600 }}
-                  tickFormatter={(value) => `₹${value / 1000}k`}
+                  tickFormatter={(value) => `₹${value}`}
                 />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#1c1c1e', border: '1px solid #27272a', borderRadius: '12px' }}
@@ -191,8 +208,8 @@ const Dashboard: React.FC = () => {
         {/* Activity Feed */}
         <div className="bg-card border border-border rounded-3xl p-8">
           <h2 className="text-xl font-black tracking-tight mb-8">RECENT ACTIVITY</h2>
-          <div className="space-y-6">
-            {mockActivities.map((activity) => (
+          <div className="space-y-6 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
+            {activities.map((activity: any) => (
               <div key={activity.id} className="flex gap-4 group cursor-default">
                 <div className={cn(
                   "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border border-border transition-colors",
@@ -209,48 +226,48 @@ const Dashboard: React.FC = () => {
                   <p className="text-xs text-muted-foreground mt-1 font-medium">{activity.description}</p>
                   <p className="text-[10px] text-muted-foreground/60 font-bold uppercase tracking-wider mt-2 flex items-center gap-1">
                     <Clock size={10} />
-                    {activity.timestamp}
+                    {new Date(activity.timestamp).toLocaleTimeString()}
                   </p>
                 </div>
               </div>
             ))}
           </div>
-          <button className="w-full mt-8 py-3 bg-muted hover:bg-muted/80 rounded-xl text-xs font-black tracking-widest transition-all flex items-center justify-center gap-2 border border-border">
-            VIEW ALL LOGS <ChevronRight size={14} />
+          <button onClick={() => navigate('/logs')} className="w-full mt-8 py-3 bg-muted hover:bg-muted/80 rounded-xl text-xs font-black tracking-widest transition-all flex items-center justify-center gap-2 border border-border">
+            VIEW REALTIME LOGS <ChevronRight size={14} />
           </button>
         </div>
       </div>
 
       {/* System Health Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-card border border-border rounded-3xl p-8 flex items-center justify-between">
+        <div onClick={() => navigate('/server')} className="bg-card border border-border rounded-3xl p-8 flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center">
               <Server className="text-green-500" size={28} />
             </div>
             <div>
-              <h3 className="font-black text-lg">Main Server Health</h3>
-              <p className="text-sm text-muted-foreground font-medium">Global latency: 42ms</p>
+              <h3 className="font-black text-lg">Main Server Operations</h3>
+              <p className="text-sm text-muted-foreground font-medium">PostgreSQL & Socket Gateway healthy</p>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-green-500 font-black text-xl leading-none">99.98%</div>
-            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest mt-1">Uptime</p>
+            <div className="text-green-500 font-black text-xl leading-none">ONLINE</div>
+            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest mt-1">Uptime 100%</p>
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-3xl p-8 flex items-center justify-between">
+        <div onClick={() => navigate('/alerts')} className="bg-card border border-border rounded-3xl p-8 flex items-center justify-between cursor-pointer hover:border-primary/50 transition-all">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-yellow-500/10 rounded-full flex items-center justify-center">
               <AlertCircle className="text-yellow-500" size={28} />
             </div>
             <div>
-              <h3 className="font-black text-lg">Pending Review</h3>
-              <p className="text-sm text-muted-foreground font-medium">12 support tickets awaiting reply</p>
+              <h3 className="font-black text-lg">Containers & Fleet</h3>
+              <p className="text-sm text-muted-foreground font-medium">Docker containers operating cleanly</p>
             </div>
           </div>
           <button className="bg-yellow-500 text-black px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-yellow-500/20">
-            OPEN HELP DESK
+            VIEW FLEET
           </button>
         </div>
       </div>

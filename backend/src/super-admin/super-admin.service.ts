@@ -579,6 +579,70 @@ export class SuperAdminService {
     return { totalRevenue: totalPayments._sum.amount || 0, activeSubscriptions };
   }
 
+  async getDashboardOverview() {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [
+      totalBusinesses,
+      trialUsers,
+      starterUsers,
+      growthUsers,
+      monthlyRev,
+      pendingPayments,
+      failedPayments,
+      recentAuditLogs,
+    ] = await Promise.all([
+      this.prisma.business.count(),
+      this.prisma.subscription.count({ where: { planId: 'TRIAL' } }),
+      this.prisma.subscription.count({ where: { planId: 'STARTER' } }),
+      this.prisma.subscription.count({ where: { planId: 'GROWTH' } }),
+      this.prisma.paymentTransaction.aggregate({
+        where: { status: 'CAPTURED', createdAt: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      this.prisma.paymentTransaction.count({ where: { status: 'PENDING' } }),
+      this.prisma.paymentTransaction.count({ where: { status: 'FAILED' } }),
+      this.prisma.auditLog.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: { business: { select: { name: true } } },
+      }),
+    ]);
+
+    const activeSockets = this.syncGateway.server?.sockets?.sockets?.size || 0;
+    const revTotal = Number(monthlyRev._sum.amount || 0);
+
+    const activities = recentAuditLogs.map(a => ({
+      id: a.id,
+      type: a.action.toLowerCase().includes('payment') ? 'payment' : a.action.toLowerCase().includes('signup') ? 'signup' : 'subscription',
+      title: `${a.action}: ${a.business?.name || 'Platform'}`,
+      description: `${a.entity} ${a.entityId || ''}`,
+      timestamp: a.createdAt.toISOString(),
+      status: a.action.includes('FAIL') ? 'error' : 'success',
+    }));
+
+    return {
+      totalBusinesses,
+      onlineBusinesses: activeSockets,
+      trialUsers,
+      starterUsers,
+      growthUsers,
+      monthlyRevenue: revTotal,
+      pendingPayments,
+      failedPayments,
+      serverStatus: 'healthy',
+      socketConnections: activeSockets,
+      revenueTrend: [
+        { name: 'Current Month', value: revTotal },
+      ],
+      activities: activities.length > 0 ? activities : [
+        { id: '1', type: 'system', title: 'Optix POS SaaS Active', description: 'System online & monitoring', timestamp: new Date().toISOString() }
+      ]
+    };
+  }
+
+
   // ─────────────────────────────────────────────────────────────────────────
   // FEATURE FLAGS
   // ─────────────────────────────────────────────────────────────────────────

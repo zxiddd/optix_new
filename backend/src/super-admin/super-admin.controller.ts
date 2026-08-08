@@ -225,9 +225,15 @@ export class SuperAdminController {
   // ─── REVENUE & STATS ───────────────────────────────────────────────────────
 
   @Get('revenue-stats')
-  @ApiOperation({ summary: 'Get detailed revenue statistics' })
+  @ApiOperation({ summary: 'Get overall revenue stats' })
   async getRevenueStats() {
     return this.adminService.getRevenueStats();
+  }
+
+  @Get('dashboard-overview')
+  @ApiOperation({ summary: 'Get main dashboard real metrics overview' })
+  async getDashboardOverview() {
+    return this.adminService.getDashboardOverview();
   }
 
   // ─── FEATURE FLAGS ─────────────────────────────────────────────────────────
