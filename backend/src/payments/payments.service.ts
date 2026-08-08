@@ -2,7 +2,9 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { SyncGateway } from '../sync/sync.gateway';
-import Razorpay from 'razorpay';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Razorpay = require('razorpay');
+
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -27,6 +29,7 @@ export class PaymentsService {
   }
 
   async createOrder(businessId: string, planId: string, cycle: 'MONTHLY' | 'YEARLY') {
+    this.logger.log(`[CREATE ORDER] Business: ${businessId}, Plan: ${planId}, Cycle: ${cycle}`);
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       include: { settings: true },
@@ -223,6 +226,11 @@ export class PaymentsService {
       expiryDate: expiryDate.getTime(),
     });
 
-    return { success: true, planId: tx.planId, status: 'ACTIVE' };
+    const updatedSub = await this.prisma.subscription.findUnique({
+      where: { businessId: tx.businessId },
+      include: { plan: true },
+    });
+
+    return { success: true, subscription: updatedSub };
   }
 }
