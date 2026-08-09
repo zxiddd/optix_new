@@ -21,7 +21,9 @@ import SecurityBackups from '@/pages/SecurityBackups';
 import SystemAlerts from '@/pages/SystemAlerts';
 import DatabaseExplorer from '@/pages/DatabaseExplorer';
 import Notifications from '@/pages/Notifications';
+import SupportTickets from '@/pages/SupportTickets';
 import Login from '@/pages/Login';
+
 
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -47,6 +49,8 @@ const App: React.FC = () => {
           <Route path="db-explorer" element={<DatabaseExplorer />} />
           <Route path="activation-codes" element={<ActivationCodes />} />
           <Route path="notifications" element={<Notifications />} />
+          <Route path="support" element={<SupportTickets />} />
+
 
 
           <Route path="feature-flags" element={<FeatureFlags />} />

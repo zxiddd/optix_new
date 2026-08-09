@@ -17,6 +17,8 @@ import { PaymentQrModule } from './payment-qr/payment-qr.module';
 import { PaymentsModule } from './payments/payments.module';
 import { SuperAdminModule } from './super-admin/super-admin.module';
 
+import { SupportModule } from './support/support.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -44,6 +46,8 @@ import { SuperAdminModule } from './super-admin/super-admin.module';
     PaymentQrModule,
     PaymentsModule,
     SuperAdminModule,
+    SupportModule,
   ],
 })
 export class AppModule {}
+

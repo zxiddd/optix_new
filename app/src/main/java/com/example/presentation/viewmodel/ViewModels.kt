@@ -2275,26 +2275,17 @@ class AiAssistantViewModel(
     private val supportRepo: SupportTicketRepository
 ) : ViewModel() {
     private val _messages = MutableStateFlow<List<AiMessage>>(listOf(
-        AiMessage("Hello! I am your Optix Assistant. How can I help you today?", false)
+        AiMessage("Hello! I am your Optix AI Copilot. Ask me about POS billing, inventory stock, reports, or click 'Ticket' to reach Super Admin Support live!", false)
     ))
     val messages: StateFlow<List<AiMessage>> = _messages.asStateFlow()
 
     private val _isLimitReached = MutableStateFlow(false)
     val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
 
-    init {
-        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
-        viewModelScope.launch {
-            com.example.services.FeatureGate.subscription.collect { sub ->
-                if (sub != null && sub.planId != "TRIAL") {
-                    _isLimitReached.value = false
-                }
-            }
-        }
-    }
+    private val _isThinking = MutableStateFlow(false)
+    val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
 
     init {
-        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
         viewModelScope.launch {
             com.example.services.FeatureGate.subscription.collect { sub ->
                 if (sub != null && sub.planId != "TRIAL") {
@@ -2314,20 +2305,90 @@ class AiAssistantViewModel(
                 return@launch
             }
             
-            val bp = repository.profile.first() ?: return@launch
-            val sub = repository.subscription.first()
-            val limit = if (sub?.planId == "TRIAL") 100 else 100 // Based on Growth
-            
-            if (bp.dailyAiCount >= limit) {
-                _isLimitReached.value = true
-                _messages.value += AiMessage("You have reached your daily AI message limit. Upgrade to Growth for more!", false)
-                return@launch
-            }
-
             _messages.value += AiMessage(content, true)
-            repository.saveProfile(bp.copy(dailyAiCount = bp.dailyAiCount + 1))
-            val response = processIntent(content, navController)
-            _messages.value += AiMessage(response, false)
+            _isThinking.value = true
+
+            withContext(Dispatchers.IO) {
+                try {
+                    val businessId = repository.profile.first()?.id ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
+
+                    val url = java.net.URL("https://api.optixapp.in/api/v1/support/ai/chat")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.doOutput = true
+
+                    val jsonPayload = org.json.JSONObject().apply {
+                        put("businessId", businessId)
+                        put("message", content)
+                    }
+
+                    conn.outputStream.use { os ->
+                        os.write(jsonPayload.toString().toByteArray(Charsets.UTF_8))
+                    }
+
+                    if (conn.responseCode == 200 || conn.responseCode == 201) {
+                        val respText = conn.inputStream.bufferedReader().use { it.readText() }
+                        val respObj = org.json.JSONObject(respText)
+                        val reply = respObj.optString("reply", "I'm here to help you manage Optix POS!")
+                        withContext(Dispatchers.Main) {
+                            _messages.value += AiMessage(reply, false)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            _messages.value += AiMessage(processIntent(content, navController), false)
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        _messages.value += AiMessage(processIntent(content, navController), false)
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        _isThinking.value = false
+                    }
+                }
+            }
+        }
+    }
+
+    fun createSupportTicket(subject: String, category: String, initialMessage: String, onSuccess: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val businessId = repository.profile.first()?.id ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
+
+                val url = java.net.URL("https://api.optixapp.in/api/v1/support/tickets")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+
+                val jsonPayload = org.json.JSONObject().apply {
+                    put("businessId", businessId)
+                    put("subject", subject)
+                    put("category", category)
+                    put("priority", "HIGH")
+                    put("initialMessage", initialMessage)
+                }
+
+                conn.outputStream.use { os ->
+                    os.write(jsonPayload.toString().toByteArray(Charsets.UTF_8))
+                }
+
+                if (conn.responseCode == 200 || conn.responseCode == 201) {
+                    val respText = conn.inputStream.bufferedReader().use { it.readText() }
+                    val respObj = org.json.JSONObject(respText)
+                    val ticketNum = respObj.optString("ticketNumber", "TICK-001")
+                    withContext(Dispatchers.Main) {
+                        _messages.value += AiMessage("✅ Support Ticket $ticketNum created successfully! Our Super Admin team has been notified live and will reply here shortly.", false)
+                        onSuccess()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _messages.value += AiMessage("⚠️ Failed to submit support ticket. Please check your connection.", false)
+                }
+            }
         }
     }
 
@@ -2340,20 +2401,8 @@ class AiAssistantViewModel(
             msg.contains("subscription") -> "Manage plan in Settings > Subscription."
             msg.contains("qr") -> "Manage QR in Settings > Payment Accounts."
             msg.contains("receipt") -> "Edit layout in Settings > Receipt Customization."
-            else -> "I'm your Optix Assistant. Ask about staff, printer, or categories!"
-        }
-    }
-
-    fun createSupportTicket(subject: String, description: String, onSuccess: () -> Unit) {
-        viewModelScope.launch {
-            val ticket = SupportTicket(
-                id = UUID.randomUUID().toString(),
-                userId = repository.profile.first()?.name ?: "Unknown",
-                subject = subject,
-                description = description
-            )
-            supportRepo.insert(ticket)
-            onSuccess()
+            else -> "I'm your Optix Assistant. Ask about staff, printer, sales or support!"
         }
     }
 }
+

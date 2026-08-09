@@ -3605,7 +3605,11 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
     }
     val messages by viewModel.messages.collectAsState()
     val isLimitReached by viewModel.isLimitReached.collectAsState()
+    val isThinking by viewModel.isThinking.collectAsState()
     var userMessage by remember { mutableStateOf("") }
+    var showTicketDialog by remember { mutableStateOf(false) }
+    var ticketSubject by remember { mutableStateOf("") }
+    var ticketMessage by remember { mutableStateOf("") }
     val scrollState = rememberLazyListState()
 
     LaunchedEffect(messages.size) {
@@ -3614,11 +3618,71 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
         }
     }
 
+    if (showTicketDialog) {
+        AlertDialog(
+            onDismissRequest = { showTicketDialog = false },
+            title = { Text("Create Support Ticket", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Submit a live support ticket directly to our Super Admin engineering team.", fontSize = 12.sp, color = Color.Gray)
+                    OutlinedTextField(
+                        value = ticketSubject,
+                        onValueChange = { ticketSubject = it },
+                        label = { Text("Subject / Issue Title") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = ticketMessage,
+                        onValueChange = { ticketMessage = it },
+                        label = { Text("Detailed Description") },
+                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (ticketSubject.isNotBlank() && ticketMessage.isNotBlank()) {
+                            viewModel.createSupportTicket(ticketSubject, "GENERAL", ticketMessage) {
+                                showTicketDialog = false
+                                ticketSubject = ""
+                                ticketMessage = ""
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)
+                ) {
+                    Text("SUBMIT TICKET", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTicketDialog = false }) { Text("CANCEL", color = Color.Gray) }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Support & AI") },
+                title = {
+                    Column {
+                        Text("Optix AI & Live Support", fontWeight = FontWeight.Bold)
+                        Text("Connected live to Super Admin", fontSize = 10.sp, color = Color.Green)
+                    }
+                },
                 navigationIcon = { IconButton(onClick = { navController.popBackStack() }) { Icon(Icons.Default.ArrowBack, null) } },
+                actions = {
+                    Button(
+                        onClick = { showTicketDialog = true },
+                        modifier = Modifier.padding(end = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black),
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Icon(Icons.Default.ConfirmationNumber, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("TICKET", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground, titleContentColor = Color.White, navigationIconContentColor = Color.White)
             )
         },
@@ -3633,15 +3697,24 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
                 items(messages) { msg ->
                     ChatBubble(msg)
                 }
+                if (isThinking) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = OrangePrimary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Optix AI is analyzing...", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
             }
 
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                QuickActionChip(Icons.Default.Phone, "Call") { /* Call Support */ }
-                QuickActionChip(Icons.Default.Email, "Email") { /* Email Support */ }
-                QuickActionChip(Icons.Default.QuestionAnswer, "FAQ") { /* FAQ */ }
+                QuickActionChip(Icons.Default.ConfirmationNumber, "Create Ticket") { showTicketDialog = true }
+                QuickActionChip(Icons.Default.ReceiptLong, "Billing Help") { viewModel.sendMessage("How do I create a bill and add items?") }
+                QuickActionChip(Icons.Default.Inventory, "Check Stock") { viewModel.sendMessage("Show low stock inventory items") }
             }
 
             Card(
@@ -3653,11 +3726,10 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { /* Voice */ }) { Icon(Icons.Default.Mic, null, tint = OrangePrimary) }
                     OutlinedTextField(
                         value = userMessage,
                         onValueChange = { userMessage = it },
-                        placeholder = { Text("Ask anything...") },
+                        placeholder = { Text("Ask Gemini AI or request admin help...") },
                         modifier = Modifier.weight(1f),
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent),
                         singleLine = true
@@ -3667,7 +3739,7 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
                             viewModel.sendMessage(userMessage, navController)
                             userMessage = ""
                         },
-                        enabled = userMessage.isNotBlank() && !isLimitReached
+                        enabled = userMessage.isNotBlank() && !isLimitReached && !isThinking
                     ) {
                         Icon(Icons.Default.Send, null, tint = if (userMessage.isNotBlank()) OrangePrimary else Color.Gray)
                     }
@@ -3676,6 +3748,7 @@ fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel)
         }
     }
 }
+
 
 @Composable
 fun ChatBubble(message: AiMessage) {
