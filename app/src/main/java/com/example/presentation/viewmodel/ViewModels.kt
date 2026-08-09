@@ -69,7 +69,10 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
                 SettingsViewModel(cloudRepo, application.printerConfigRepository, authManager, application.printerManager, application.paymentQrRepository, application.businessProfileRepository) as T
             modelClass.isAssignableFrom(com.example.presentation.viewmodel.AiMenuScannerViewModel::class.java) ->
                 com.example.presentation.viewmodel.AiMenuScannerViewModel(cloudRepo, application.billingItemRepository, application.categoryRepository) as T
+            modelClass.isAssignableFrom(AiAssistantViewModel::class.java) ->
+                AiAssistantViewModel(cloudRepo, application.supportTicketRepository) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class")
+
         }
     }
 }
