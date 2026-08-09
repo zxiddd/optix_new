@@ -87,7 +87,8 @@ class CloudRepository(private val userId: String, private val authToken: String?
         orderRepo: BillOrderRepository,
         profileRepo: BusinessProfileRepository,
         qrRepo: PaymentQrRepository? = null,
-        staffRepo: StaffRepository? = null
+        staffRepo: StaffRepository? = null,
+        subRepo: SubscriptionRepository? = null
     ) = withContext(Dispatchers.IO) {
         if (!isSyncing.compareAndSet(false, true)) {
             Log.d("OPTIX_FLOW", "[SYNC SKIPPED] Concurrent sync operation prevented")
@@ -99,7 +100,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
             if (resp.isSuccessful) {
                 val str = resp.body?.string() ?: "{}"
                 val root = JSONObject(str)
-                parseAndStoreDump(root, categoryRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo)
+                parseAndStoreDump(root, categoryRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo, subRepo)
             }
         } catch (e: Exception) {
             Log.e("CloudRepository", "syncCloudToLocal error: ${e.message}")
@@ -115,7 +116,8 @@ class CloudRepository(private val userId: String, private val authToken: String?
         profileRepo: BusinessProfileRepository,
         sinceTimestamp: Long = 0L,
         qrRepo: PaymentQrRepository? = null,
-        staffRepo: StaffRepository? = null
+        staffRepo: StaffRepository? = null,
+        subRepo: SubscriptionRepository? = null
     ) = withContext(Dispatchers.IO) {
         if (!isSyncing.compareAndSet(false, true)) {
             Log.d("OPTIX_FLOW", "[SYNC SKIPPED] Concurrent sync operation prevented")
@@ -127,7 +129,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
             if (resp.isSuccessful) {
                 val str = resp.body?.string() ?: "{}"
                 val root = JSONObject(str)
-                parseAndStoreDump(root, categoryRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo)
+                parseAndStoreDump(root, categoryRepo, itemRepo, orderRepo, profileRepo, qrRepo, staffRepo, subRepo)
             }
         } catch (e: Exception) {
             Log.e("CloudRepository", "syncPullIncremental error: ${e.message}")
@@ -165,7 +167,8 @@ class CloudRepository(private val userId: String, private val authToken: String?
         orderRepo: BillOrderRepository,
         profileRepo: BusinessProfileRepository,
         qrRepo: PaymentQrRepository? = null,
-        staffRepo: StaffRepository? = null
+        staffRepo: StaffRepository? = null,
+        subRepo: SubscriptionRepository? = null
     ) = withContext(Dispatchers.IO) {
         // 1. Business & Settings
         if (root.has("business") && !root.isNull("business")) {
@@ -173,7 +176,8 @@ class CloudRepository(private val userId: String, private val authToken: String?
             val bName = bObj.optString("name")
             val bPhone = bObj.optString("phone", "")
             val bAddr = bObj.optString("address", "")
-            val bCurrency = bObj.optString("currency", "Rs.")
+            val bCountry = bObj.optString("country", "India")
+            val bCurrency = bObj.optString("currency", "₹")
 
             var rShowLogo = false
             var rLogoUrl: String? = null
@@ -237,6 +241,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
                     phone = if (bPhone.isNotEmpty()) bPhone else existing.phone,
                     address = if (bAddr.isNotEmpty()) bAddr else existing.address,
                     currency = bCurrency,
+                    country = bCountry,
                     openingTime = bOpeningTime,
                     closingTime = bClosingTime,
                     timezone = bTimezone,
@@ -261,6 +266,47 @@ class CloudRepository(private val userId: String, private val authToken: String?
                 profileRepo.saveProfile(updatedProfile)
                 lastSyncedProfile = updatedProfile
             }
+        }
+
+        // 1.5 Subscriptions
+        if (root.has("subscription") && !root.isNull("subscription") && subRepo != null) {
+            val sObj = root.getJSONObject("subscription")
+            val pObj = if (sObj.has("plan") && !sObj.isNull("plan")) sObj.getJSONObject("plan") else null
+            
+            val expiryStr = sObj.optString("expiryDate", "")
+            val expiryTs = try {
+                if (expiryStr.isEmpty()) 0L
+                else if (expiryStr.all { it.isDigit() }) expiryStr.toLong()
+                else {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                    sdf.parse(expiryStr)?.time ?: 0L
+                }
+            } catch (e: Exception) { 0L }
+
+            val sub = UserSubscription(
+                uid = sObj.optString("businessId", ""),
+                planId = sObj.optString("planId", "TRIAL"),
+                planName = pObj?.optString("name", "Trial Plan") ?: sObj.optString("planName", "Trial Plan"),
+                amount = sObj.optDouble("amount", 0.0),
+                currency = sObj.optString("currency", "₹"),
+                country = sObj.optString("country", "India"),
+                billingCycle = sObj.optString("billingCycle", "MONTHLY"),
+                status = sObj.optString("status", "ACTIVE").uppercase(),
+                billsUsed = sObj.optInt("billsUsed", 0),
+                productsUsed = sObj.optInt("productsUsed", 0),
+                activationCode = sObj.optString("activationCode", null),
+                expiryDate = expiryTs
+            )
+            subRepo.saveSubscription(sub)
+            
+            // Critical: Force FeatureGate update after sync
+            val bills = orderRepo.getOrdersSync().size
+            val prods = itemRepo.getAllItemsSync().size
+            val updatedSub = if (sub.planId == "TRIAL") {
+                sub.copy(billsUsed = bills, productsUsed = prods)
+            } else sub
+            com.example.services.FeatureGate.updateSubscription(updatedSub)
         }
 
         // 2. Categories
@@ -952,16 +998,152 @@ class CloudRepository(private val userId: String, private val authToken: String?
 
     // --- Subscriptions ---
     val subscription: Flow<UserSubscription?> = flow {
-        emit(UserSubscription(planName = "Starter", status = "active"))
+        try {
+            val req = buildRequest("/subscriptions").get().build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val str = resp.body?.string() ?: ""
+                val obj = JSONObject(str)
+                val pObj = if (obj.has("plan") && !obj.isNull("plan")) obj.getJSONObject("plan") else null
+
+                val expiryStr = obj.optString("expiryDate", "")
+                val expiryTs = try {
+                    if (expiryStr.isEmpty()) 0L
+                    else if (expiryStr.all { it.isDigit() }) expiryStr.toLong()
+                    else {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+                        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                        sdf.parse(expiryStr)?.time ?: 0L
+                    }
+                } catch (e: Exception) { 0L }
+
+                emit(
+                    UserSubscription(
+                        uid = obj.optString("businessId", ""),
+                        planId = obj.optString("planId", "TRIAL"),
+                        planName = pObj?.optString("name", "Trial Plan") ?: obj.optString("planName", "Trial Plan"),
+                        amount = obj.optDouble("amount", 0.0),
+                        currency = obj.optString("currency", "₹"),
+                        country = obj.optString("country", "India"),
+                        billingCycle = obj.optString("billingCycle", "MONTHLY"),
+                        status = obj.optString("status", "ACTIVE").uppercase(),
+                        billsUsed = obj.optInt("billsUsed", 0),
+                        productsUsed = obj.optInt("productsUsed", 0),
+                        activationCode = obj.optString("activationCode", null),
+                        expiryDate = expiryTs
+                    )
+                )
+            } else {
+                emit(null)
+            }
+        } catch (e: Exception) {
+            emit(null)
+        }
     }.flowOn(Dispatchers.IO)
 
-    suspend fun saveSubscription(sub: UserSubscription) {}
+    suspend fun activateSubscriptionCode(code: String): ActivationResult = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply { put("code", code) }
+            val req = buildRequest("/subscription/activate").post(json.toString().toRequestBody(jsonMediaType)).build()
+            val resp = client.newCall(req).execute()
+            val str = resp.body?.string() ?: ""
+            val obj = JSONObject(str)
+            ActivationResult(
+                success = resp.isSuccessful && obj.optBoolean("success", true),
+                message = obj.optString("message", null)
+            )
+        } catch (e: Exception) {
+            ActivationResult(false, "Connection error")
+        }
+    }
+
+    data class ActivationResult(val success: Boolean, val message: String? = null)
+
+    suspend fun saveSubscription(sub: UserSubscription) {
+        // This is usually handled by the backend after payment or code activation, 
+        // but we might want to sync local trial state
+        try {
+            val json = JSONObject().apply {
+                put("planId", sub.planId)
+                put("country", sub.country)
+                put("currency", sub.currency)
+                put("billingCycle", sub.billingCycle)
+                put("expiryDate", sub.expiryDate)
+            }
+            val req = buildRequest("/subscription/sync-local").post(json.toString().toRequestBody(jsonMediaType)).build()
+            client.newCall(req).execute()
+        } catch (e: Exception) {}
+    }
 
     suspend fun getAvailablePlans(): List<SubscriptionPlan> {
         return listOf(
-            SubscriptionPlan("1", "Starter", 999.0, 30),
-            SubscriptionPlan("2", "Professional", 1999.0, 30)
+            SubscriptionPlan("STARTER", "Starter", 499.0, 30),
+            SubscriptionPlan("GROWTH", "Growth", 999.0, 30)
         )
+    }
+
+    // --- Payments ---
+    suspend fun createRazorpayOrder(planId: String, billingCycle: String): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("planId", planId)
+                put("billingCycle", billingCycle)
+            }
+            val req = buildRequest("/payments/create-order").post(json.toString().toRequestBody(jsonMediaType)).build()
+            val resp = client.newCall(req).execute()
+            val body = resp.body?.string() ?: "{}"
+            Log.d("OPTIX_FLOW", "[PAYMENT ORDER] Response Code: ${resp.code}, Body: $body")
+            if (resp.isSuccessful) {
+                JSONObject(body)
+            } else null
+        } catch (e: Exception) { null }
+    }
+
+    suspend fun verifyRazorpayPayment(orderId: String, paymentId: String, signature: String): UserSubscription? = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("razorpay_order_id", orderId)
+                put("razorpay_payment_id", paymentId)
+                put("razorpay_signature", signature)
+            }
+            val req = buildRequest("/payments/verify").post(json.toString().toRequestBody(jsonMediaType)).build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val str = resp.body?.string() ?: ""
+                android.util.Log.d("OPTIX_FLOW", "[VERIFY RESPONSE] Body: $str")
+                val root = JSONObject(str)
+                if (root.has("subscription") && !root.isNull("subscription")) {
+                    val sObj = root.getJSONObject("subscription")
+                    val pObj = if (sObj.has("plan") && !sObj.isNull("plan")) sObj.getJSONObject("plan") else null
+                    
+                    val expiryStr = sObj.optString("expiryDate", "")
+                    val expiryTs = try {
+                        if (expiryStr.isEmpty()) 0L
+                        else if (expiryStr.all { it.isDigit() }) expiryStr.toLong()
+                        else {
+                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+                            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                            sdf.parse(expiryStr)?.time ?: 0L
+                        }
+                    } catch (e: Exception) { 0L }
+
+                    UserSubscription(
+                        uid = sObj.optString("businessId", ""),
+                        planId = sObj.optString("planId", "TRIAL"),
+                        planName = pObj?.optString("name", "Trial Plan") ?: sObj.optString("planName", "Trial Plan"),
+                        amount = sObj.optDouble("amount", 0.0),
+                        currency = sObj.optString("currency", "₹"),
+                        country = sObj.optString("country", "India"),
+                        billingCycle = sObj.optString("billingCycle", "MONTHLY"),
+                        status = sObj.optString("status", "ACTIVE").uppercase(),
+                        billsUsed = sObj.optInt("billsUsed", 0),
+                        productsUsed = sObj.optInt("productsUsed", 0),
+                        activationCode = sObj.optString("activationCode", null),
+                        expiryDate = expiryTs
+                    )
+                } else null
+            } else null
+        } catch (e: Exception) { null }
     }
 
     private fun String?.isNull_or_empty(): Boolean = this == null || this.trim().isEmpty()

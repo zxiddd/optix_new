@@ -11,6 +11,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavController
 import com.example.OptixApplication
+import com.example.MainActivity
+import com.example.services.SyncManager
+import com.razorpay.Checkout
+import com.razorpay.PaymentData
 import com.example.data.entity.*
 import com.example.data.repository.*
 import com.example.services.AuthManager
@@ -54,7 +58,13 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
             modelClass.isAssignableFrom(StaffViewModel::class.java) ->
                 StaffViewModel(cloudRepo, application.staffRepository, authManager, application.businessProfileRepository, application.staffActivityLogRepository, application.staffSessionRepository, application.notificationRepository) as T
             modelClass.isAssignableFrom(SubscriptionViewModel::class.java) ->
-                SubscriptionViewModel(cloudRepo, application.subscriptionRepository) as T
+                SubscriptionViewModel(
+                    cloudRepo, 
+                    application.subscriptionRepository, 
+                    application.businessProfileRepository,
+                    application.billOrderRepository,
+                    application.billingItemRepository
+                ) as T
             modelClass.isAssignableFrom(SettingsViewModel::class.java) -> 
                 SettingsViewModel(cloudRepo, application.printerConfigRepository, authManager, application.printerManager, application.paymentQrRepository, application.businessProfileRepository) as T
             modelClass.isAssignableFrom(com.example.presentation.viewmodel.AiMenuScannerViewModel::class.java) ->
@@ -201,9 +211,12 @@ class BusinessSetupViewModel(
     var address = mutableStateOf("")
     var phone = mutableStateOf("")
     var gstNumber = mutableStateOf("")
-    var selectedCurrency = mutableStateOf("Rs.")
+    var selectedCountry = mutableStateOf("India")
     var footerMessage = mutableStateOf("Thank You! Visit Again 🙏")
     var setupError = mutableStateOf<String?>(null)
+
+    val selectedCurrency: String
+        get() = com.example.services.PricingEngine.getCurrencyForCountry(selectedCountry.value)
 
     init {
         viewModelScope.launch {
@@ -213,7 +226,7 @@ class BusinessSetupViewModel(
                     address.value = bp.address
                     phone.value = bp.phone
                     gstNumber.value = bp.gstNumber ?: ""
-                    selectedCurrency.value = bp.currency
+                    selectedCountry.value = bp.country
                     footerMessage.value = bp.footerMessage
                 }
             }
@@ -235,8 +248,9 @@ class BusinessSetupViewModel(
                 name = name,
                 address = addr,
                 phone = ph,
+                country = selectedCountry.value,
                 gstNumber = gstNumber.value.ifEmpty { null },
-                currency = selectedCurrency.value,
+                currency = selectedCurrency,
                 footerMessage = footerMessage.value,
                 setupCompleted = true
             )
@@ -309,6 +323,28 @@ class BillingViewModel(
 
     private val _isLimitReached = MutableStateFlow(false)
     val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
+
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
+
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
 
     // Weight-Based Dialog State
     var weightItemToEdit = mutableStateOf<BillingItem?>(null)
@@ -497,14 +533,13 @@ class BillingViewModel(
 
     private fun processOrder(context: Context, profile: BusinessProfile, cashierName: String, shouldPrint: Boolean, onComplete: () -> Unit) {
         if (_cartItems.value.isEmpty()) return
+        
+        if (!com.example.services.FeatureGate.canCreateBill()) {
+            _isLimitReached.value = true
+            return
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val sub = repository.subscription.first()
-            if (sub?.planId == "free" && profile.dailyBillCount >= 10) {
-                _isLimitReached.value = true
-                return@launch
-            }
-
             isPreparingOrder.value = true
             val tokenNum = generateNewToken(context, profile)
             val invoiceNum = "INV-" + SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(Date())
@@ -550,9 +585,16 @@ class BillingViewModel(
                     android.util.Log.d("OPTIX_SYNC", "[3. SERVER TOKEN RECEIVED] Saved online with token: $serverToken")
                     orderRepository.insert(order.copy(isSynced = true))
                 }
+            } catch (e: com.example.services.TrialLimitException) {
+                _isLimitReached.value = true
+                android.util.Log.e("OPTIX_SYNC", "[LIMIT REACHED] Billing blocked: ${e.message}")
             } catch (e: Exception) {
                 android.util.Log.e("OPTIX_SYNC", "[NETWORK OFF - SAVED OFFLINE] Saved order ${order.id} to Room with isSynced=false. Err: ${e.message}")
-                orderRepository.insert(order.copy(isSynced = false))
+                try {
+                    orderRepository.insert(order.copy(isSynced = false))
+                } catch (le: com.example.services.TrialLimitException) {
+                    _isLimitReached.value = true
+                }
             }
 
             val updatedProfile = profile.copy(dailyBillCount = profile.dailyBillCount + 1)
@@ -818,7 +860,8 @@ class AnalyticsViewModel(
                 itemQuantities = quantities,
                 totalSales = currentMetrics.totalSales,
                 numBills = currentMetrics.numBills,
-                shouldPrint = false
+                shouldPrint = false,
+                currency = profile.currency
             )
             _summaryPreviewText.value = preview
         }
@@ -837,7 +880,8 @@ class AnalyticsViewModel(
                 itemQuantities = quantities,
                 totalSales = currentMetrics.totalSales,
                 numBills = currentMetrics.numBills,
-                shouldPrint = true
+                shouldPrint = true,
+                currency = profile.currency
             )
         }
     }
@@ -1041,6 +1085,31 @@ class ItemsViewModel(
     var bulkValue = mutableStateOf("")
 
     var editingItem = mutableStateOf<BillingItem?>(null)
+    
+    private val _isLimitReached = MutableStateFlow(false)
+    val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
+
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
+
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
 
     fun clearForm() {
         editingItem.value = null
@@ -1065,6 +1134,12 @@ class ItemsViewModel(
     fun saveItem(selectedItem: BillingItem?, onSuccess: () -> Unit) {
         val targetItem = selectedItem ?: editingItem.value
         val isEditing = targetItem != null
+        
+        if (!isEditing && !com.example.services.FeatureGate.canCreateProduct()) {
+            _isLimitReached.value = true
+            return
+        }
+
         val requiredPerm = if (isEditing) com.example.services.PermissionManager.EDIT_PRODUCTS else com.example.services.PermissionManager.ADD_PRODUCTS
         if (!com.example.services.PermissionManager.can(requiredPerm)) {
             return
@@ -1095,12 +1170,17 @@ class ItemsViewModel(
                 isSynced = false,
                 isDeleted = false
             )
-            itemRepository.insert(item)
-            launch(Dispatchers.IO) {
-                try { repository.insertItem(item) } catch (e: Exception) {}
+            try {
+                itemRepository.insert(item)
+                launch(Dispatchers.IO) {
+                    try { repository.insertItem(item) } catch (e: Exception) {}
+                }
+                clearForm() // Clear form after successful save
+                onSuccess()
+            } catch (e: com.example.services.TrialLimitException) {
+                _isLimitReached.value = true
+                android.util.Log.e("ITEMS_VM", "[LIMIT REACHED] Product creation blocked")
             }
-            clearForm() // Clear form after successful save
-            onSuccess()
         }
     }
 
@@ -1119,7 +1199,11 @@ class ItemsViewModel(
     fun duplicateItem(item: BillingItem) {
         viewModelScope.launch {
             val newItem = item.copy(id = UUID.randomUUID().toString(), name = "${item.name} (Copy)")
-            itemRepository.insert(newItem)
+            try {
+                itemRepository.insert(newItem)
+            } catch (e: com.example.services.TrialLimitException) {
+                _isLimitReached.value = true
+            }
         }
     }
 
@@ -1512,60 +1596,187 @@ class StaffViewModel(
 // --- 8. SUBSCRIPTION VIEWMODEL ---
 class SubscriptionViewModel(
     private val repository: CloudRepository,
-    private val subRepo: SubscriptionRepository
+    private val subRepo: SubscriptionRepository,
+    private val profileRepo: BusinessProfileRepository,
+    private val orderRepo: BillOrderRepository,
+    private val itemRepo: BillingItemRepository
 ) : ViewModel() {
 
     val subscription: StateFlow<UserSubscription?> = subRepo.subscription
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _availablePlans = MutableStateFlow<List<SubscriptionPlan>>(emptyList())
-    val availablePlans: StateFlow<List<SubscriptionPlan>> = _availablePlans.asStateFlow()
+    val businessProfile: StateFlow<BusinessProfile?> = profileRepo.profile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    var billingCycle = mutableStateOf("MONTHLY") // MONTHLY, YEARLY
+    var activationCode = mutableStateOf("")
+    var isVerifyingCode = mutableStateOf(false)
+    var activationError = mutableStateOf<String?>(null)
+
+    // Razorpay States
+    var isProcessingPayment = mutableStateOf(false)
+    var paymentError = mutableStateOf<String?>(null)
 
     init {
-        // Sync cloud sub to local
+        // Sync FeatureGate with local Room subscription
         viewModelScope.launch {
-            repository.subscription.collect { sub ->
-                if (sub != null) subRepo.saveSubscription(sub)
+            subscription.collect { sub ->
+                if (sub != null) {
+                    withContext(Dispatchers.IO) {
+                        val bills = orderRepo.getOrdersSync().size
+                        val prods = itemRepo.getAllItemsSync().size
+                        val updatedSub = if (sub.planId == "TRIAL") {
+                            sub.copy(billsUsed = bills, productsUsed = prods)
+                        } else sub
+                        com.example.services.FeatureGate.updateSubscription(updatedSub)
+                    }
+                } else {
+                    com.example.services.FeatureGate.updateSubscription(null)
+                }
             }
         }
-        
-        // Fetch plans from Firestore
+
+        // Periodically refresh subscription from cloud
         viewModelScope.launch {
-            try {
-                val plans = repository.getAvailablePlans()
-                if (plans.isNotEmpty()) {
-                    _availablePlans.value = plans
-                } else {
-                    _availablePlans.value = defaultPlans()
-                }
-            } catch (e: Exception) {
-                _availablePlans.value = defaultPlans()
+            while (true) {
+                try {
+                    repository.subscription.collect { sub ->
+                        if (sub != null) subRepo.saveSubscription(sub)
+                    }
+                } catch (e: Exception) {}
+                kotlinx.coroutines.delay(60000) // Every minute
             }
         }
     }
 
-    private fun defaultPlans() = listOf(
-        SubscriptionPlan("monthly", "Monthly Premium", 500.0, 30, listOf("Unlimited Bills", "Staff Accounts", "Cloud Sync", "AI Assistant (100/day)")),
-        SubscriptionPlan("3_months", "3 Months Saver", 1425.0, 90, listOf("5% Discount", "All Premium Features", "Priority Support")),
-        SubscriptionPlan("6_months", "6 Months Pro", 2700.0, 180, listOf("10% Discount", "All Premium Features", "Inventory Management")),
-        SubscriptionPlan("9_months", "9 Months Elite", 3825.0, 270, listOf("15% Discount", "All Premium Features", "Multi-device Sync")),
-        SubscriptionPlan("12_months", "Annual Plan", 5000.0, 365, listOf("~17% Discount", "All Premium Features", "Free Customization Support"))
-    )
+    fun activateCode(onSuccess: () -> Unit) {
+        val code = activationCode.value.trim()
+        if (code.isEmpty()) return
 
-    fun renewSubscription(plan: SubscriptionPlan) {
         viewModelScope.launch {
-            val current = subscription.value ?: UserSubscription()
-            val newExpiry = System.currentTimeMillis() + (plan.durationDays * 24L * 60 * 60 * 1000)
-            val updated = current.copy(
-                planId = plan.id,
-                planName = plan.name,
-                amount = plan.price,
-                status = "active",
-                expiryDate = newExpiry,
-                lastUpdated = System.currentTimeMillis()
+            isVerifyingCode.value = true
+            activationError.value = null
+            try {
+                val result = repository.activateSubscriptionCode(code)
+                if (result.success) {
+                    // Result should contain updated subscription which will sync via existing flow
+                    activationCode.value = ""
+                    onSuccess()
+                } else {
+                    activationError.value = result.message ?: "Invalid activation code"
+                }
+            } catch (e: Exception) {
+                activationError.value = "Failed to connect to server"
+            } finally {
+                isVerifyingCode.value = false
+            }
+        }
+    }
+
+    fun startTrial() {
+        viewModelScope.launch {
+            val profile = businessProfile.value ?: return@launch
+            val sub = UserSubscription(
+                uid = profile.id.toString(),
+                planId = "TRIAL",
+                planName = "Trial Plan",
+                country = profile.country,
+                currency = profile.currency,
+                expiryDate = System.currentTimeMillis() + (14L * 24 * 60 * 60 * 1000), // 14 days
+                status = "active"
             )
-            subRepo.saveSubscription(updated)
-            launch(Dispatchers.IO) { try { repository.saveSubscription(updated) } catch (e: Exception) {} }
+            subRepo.saveSubscription(sub)
+            launch(Dispatchers.IO) { try { repository.saveSubscription(sub) } catch (e: Exception) {} }
+        }
+    }
+
+    fun initiateRazorpayPayment(activity: android.app.Activity, planId: String, cycle: String) {
+        android.util.Log.d("OPTIX_FLOW", "[PAYMENT START] Plan: $planId, Cycle: $cycle")
+        viewModelScope.launch {
+            isProcessingPayment.value = true
+            paymentError.value = null
+            
+            try {
+                val order = repository.createRazorpayOrder(planId, cycle)
+                if (order != null) {
+                    val checkout = com.razorpay.Checkout()
+                    val keyId = order.optString("key_id", "rzp_test_TMy1cZ9CH4Vh0V")
+                    checkout.setKeyID(keyId)
+                    
+                    val options = org.json.JSONObject()
+                    options.put("key", keyId)
+                    options.put("name", "Optix POS")
+                    options.put("description", "$planId Subscription ($cycle)")
+                    options.put("order_id", order.optString("id"))
+                    
+                    // NOTE: Amount and currency are fetched automatically by the SDK from order_id.
+                    // Prefill info
+                    val prefill = org.json.JSONObject()
+                    prefill.put("email", "owner@optixapp.in")
+                    prefill.put("contact", "9999999999")
+                    options.put("prefill", prefill)
+
+                    val theme = org.json.JSONObject()
+                    theme.put("color", "#FFA500")
+                    options.put("theme", theme)
+
+                    android.util.Log.d("OPTIX_FLOW", "[RAZORPAY OPTIONS] Opening checkout with Key: $keyId, Order: ${order.optString("id")}")
+
+                    MainActivity.paymentResultListener = { success: Boolean, result: String?, data: PaymentData? ->
+                        handlePaymentResult(success, result, data)
+                    }
+                    
+                    try {
+                        checkout.open(activity, options)
+                    } catch (e: Exception) {
+                        android.util.Log.e("OPTIX_FLOW", "[RAZORPAY ERROR] SDK Crash: ${e.message}")
+                        paymentError.value = "Razorpay SDK Error: ${e.message}"
+                    }
+                } else {
+                    paymentError.value = "Failed to create order. Check backend logs."
+                }
+            } catch (e: Exception) {
+                paymentError.value = "Error: ${e.message}"
+            } finally {
+                isProcessingPayment.value = false
+            }
+        }
+    }
+
+    private fun handlePaymentResult(success: Boolean, result: String?, data: com.razorpay.PaymentData?) {
+        if (success && data != null) {
+            verifyPayment(data)
+        } else {
+            paymentError.value = result ?: "Payment cancelled or failed"
+            isProcessingPayment.value = false
+        }
+    }
+
+    private fun verifyPayment(data: com.razorpay.PaymentData) {
+        viewModelScope.launch {
+            isProcessingPayment.value = true
+            try {
+                val updatedSub = repository.verifyRazorpayPayment(
+                    data.orderId,
+                    data.paymentId,
+                    data.signature
+                )
+                if (updatedSub != null) {
+                    // Update local DB and FeatureGate immediately
+                    subRepo.saveSubscription(updatedSub)
+                    com.example.services.FeatureGate.updateSubscription(updatedSub)
+                    
+                    // Also trigger a background sync to refresh other entities if needed
+                    SyncManager.getInstance(OptixApplication.instance).triggerSyncNow()
+                } else {
+                    paymentError.value = "Signature verification failed. Contact support."
+                }
+            } catch (e: Exception) {
+                paymentError.value = "Verification error: ${e.message}"
+            } finally {
+                isProcessingPayment.value = false
+                MainActivity.paymentResultListener = null
+            }
         }
     }
 }
@@ -1615,6 +1826,7 @@ class SettingsViewModel(
     var profileName = mutableStateOf("")
     var profileAddress = mutableStateOf("")
     var profilePhone = mutableStateOf("")
+    var profileCountry = mutableStateOf("India")
     var profileGst = mutableStateOf("")
     var profileCurrency = mutableStateOf("₹")
     var profileFooter = mutableStateOf("")
@@ -1666,6 +1878,7 @@ class SettingsViewModel(
         profileName.value = bp.name
         profileAddress.value = bp.address
         profilePhone.value = bp.phone
+        profileCountry.value = bp.country
         profileGst.value = bp.gstNumber ?: ""
         profileCurrency.value = bp.currency
         profileFooter.value = bp.footerMessage
@@ -1697,6 +1910,7 @@ class SettingsViewModel(
                 name = profileName.value.trim(),
                 address = profileAddress.value.trim(),
                 phone = profilePhone.value.trim(),
+                country = profileCountry.value,
                 gstNumber = profileGst.value.trim().ifEmpty { null },
                 currency = profileCurrency.value,
                 footerMessage = profileFooter.value.trim(),
@@ -2068,17 +2282,45 @@ class AiAssistantViewModel(
     private val _isLimitReached = MutableStateFlow(false)
     val isLimitReached: StateFlow<Boolean> = _isLimitReached.asStateFlow()
 
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
+
+    init {
+        // Observe FeatureGate to auto-dismiss limit dialogs upon upgrade
+        viewModelScope.launch {
+            com.example.services.FeatureGate.subscription.collect { sub ->
+                if (sub != null && sub.planId != "TRIAL") {
+                    _isLimitReached.value = false
+                }
+            }
+        }
+    }
+
     fun sendMessage(content: String, navController: NavController? = null) {
         if (content.isBlank()) return
         
         viewModelScope.launch {
+            if (!com.example.services.FeatureGate.canUseAI()) {
+                _isLimitReached.value = true
+                _messages.value += AiMessage("AI Assistant is only available for Premium plans. Upgrade now!", false)
+                return@launch
+            }
+            
             val bp = repository.profile.first() ?: return@launch
             val sub = repository.subscription.first()
-            val limit = if (sub?.planId == "free") 10 else 100
+            val limit = if (sub?.planId == "TRIAL") 100 else 100 // Based on Growth
             
             if (bp.dailyAiCount >= limit) {
                 _isLimitReached.value = true
-                _messages.value += AiMessage("You have reached your daily AI message limit. Upgrade to Premium for more!", false)
+                _messages.value += AiMessage("You have reached your daily AI message limit. Upgrade to Growth for more!", false)
                 return@launch
             }
 

@@ -10,7 +10,7 @@ interface BusinessProfileDao {
     fun getProfile(): Flow<BusinessProfile?>
 
     @Query("SELECT * FROM business_profile WHERE id = 1")
-    fun getProfileSync(): BusinessProfile?
+    suspend fun getProfileSync(): BusinessProfile?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProfile(profile: BusinessProfile)
@@ -88,7 +88,7 @@ interface PrinterConfigDao {
     fun getPrinterConfig(): Flow<PrinterConfig?>
 
     @Query("SELECT * FROM printer_config WHERE id = 1")
-    fun getPrinterConfigSync(): PrinterConfig?
+    suspend fun getPrinterConfigSync(): PrinterConfig?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPrinterConfig(config: PrinterConfig)
@@ -197,6 +197,9 @@ interface DailyReportDao {
 interface SubscriptionDao {
     @Query("SELECT * FROM user_subscriptions LIMIT 1")
     fun getSubscription(): Flow<UserSubscription?>
+
+    @Query("SELECT * FROM user_subscriptions LIMIT 1")
+    suspend fun getSubscriptionSync(): UserSubscription?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSubscription(subscription: UserSubscription)

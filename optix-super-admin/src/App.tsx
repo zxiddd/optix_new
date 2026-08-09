@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import Dashboard from '@/pages/Dashboard';
 import Businesses from '@/pages/Businesses';
@@ -20,12 +20,22 @@ import ContainerLogs from '@/pages/ContainerLogs';
 import SecurityBackups from '@/pages/SecurityBackups';
 import SystemAlerts from '@/pages/SystemAlerts';
 import DatabaseExplorer from '@/pages/DatabaseExplorer';
+import Login from '@/pages/Login';
+
+const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const isAuthenticated = localStorage.getItem('admin_authenticated') === 'true';
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+};
 
 const App: React.FC = () => {
   return (
     <BrowserRouter basename="/admin">
       <Routes>
-        <Route element={<DashboardLayout />}>
+        <Route path="/login" element={<Login />} />
+        <Route element={<AuthGuard><DashboardLayout /></AuthGuard>}>
           <Route index element={<Dashboard />} />
           <Route path="businesses" element={<Businesses />} />
           <Route path="businesses/:id" element={<BusinessDetail />} />
@@ -44,7 +54,7 @@ const App: React.FC = () => {
           <Route path="logs" element={<ContainerLogs />} />
           <Route path="security-backups" element={<SecurityBackups />} />
           <Route path="alerts" element={<SystemAlerts />} />
-          <Route path="*" element={<div className="p-8 text-center text-red-500 font-black">404 - PAGE NOT FOUND (PATH: {window.location.pathname})</div>} />
+          <Route path="*" element={<div className="p-8 text-center text-red-500 font-black">404 - PAGE NOT FOUND</div>} />
         </Route>
       </Routes>
     </BrowserRouter>

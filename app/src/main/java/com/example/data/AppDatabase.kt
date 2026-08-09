@@ -133,6 +133,20 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
     }
 }
 
+val MIGRATION_18_19 = object : Migration(18, 19) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // --- business_profile changes ---
+        db.execSQL("ALTER TABLE business_profile ADD COLUMN country TEXT NOT NULL DEFAULT 'India'")
+
+        // --- user_subscriptions changes ---
+        db.execSQL("ALTER TABLE user_subscriptions ADD COLUMN country TEXT NOT NULL DEFAULT 'India'")
+        db.execSQL("ALTER TABLE user_subscriptions ADD COLUMN billsUsed INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE user_subscriptions ADD COLUMN productsUsed INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE user_subscriptions ADD COLUMN activationCode TEXT")
+        db.execSQL("ALTER TABLE user_subscriptions ADD COLUMN renewalDate INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 @Database(
     entities = [
         BusinessProfile::class,
@@ -149,7 +163,7 @@ val MIGRATION_17_18 = object : Migration(17, 18) {
         StaffSession::class,
         NotificationEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -178,7 +192,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "zaddy_pos_db"
                 )
-                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+                .addMigrations(MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                .fallbackToDestructiveMigration(true)
                 .addCallback(AppDatabaseCallback(scope))
                 .build()
                 INSTANCE = instance

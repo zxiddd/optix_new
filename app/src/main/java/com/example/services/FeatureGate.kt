@@ -94,9 +94,34 @@ object FeatureGate {
     fun canUseLoyalty(): Boolean = isFeatureEnabled("LOYALTY")
     fun canUseCoupons(): Boolean = isFeatureEnabled("COUPONS")
 
+    fun getFeatureStatus(key: String): String {
+        return _featureFlags.value[key] ?: "ON"
+    }
+
+    fun getFeatureMessage(key: String, defaultPlanMsg: String = "Upgrade to GROWTH plan to unlock this feature."): String {
+        val status = _featureFlags.value[key]
+        return when (status) {
+            "OFF" -> "This feature has been disabled by Optix Admin."
+            "MAINTENANCE" -> "This feature is currently under maintenance. Please check back soon."
+            "BETA" -> "This feature is currently in BETA testing."
+            else -> defaultPlanMsg
+        }
+    }
+
+    fun getFeatureSubtitle(key: String, defaultPlanMsg: String): String {
+        val status = _featureFlags.value[key]
+        return when (status) {
+            "OFF" -> "Disabled by Optix Admin"
+            "MAINTENANCE" -> "Under Maintenance"
+            "BETA" -> "Beta Feature"
+            else -> defaultPlanMsg
+        }
+    }
+
     // Usage counts for Trial UI
     fun getTrialRemainingBills(): Int = (50 - billsUsed).coerceAtLeast(0)
     fun getTrialRemainingProducts(): Int = (5 - productsUsed).coerceAtLeast(0)
     
     fun isTrial(): Boolean = currentPlan == "TRIAL"
 }
+

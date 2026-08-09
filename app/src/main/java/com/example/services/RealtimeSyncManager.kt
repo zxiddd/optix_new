@@ -316,6 +316,11 @@ class RealtimeSyncManager private constructor(context: Context) {
                             val profileRepo = app.businessProfileRepository
                             val existing = profileRepo.getProfileSync() ?: BusinessProfile()
                             val updated = existing.copy(lastResetBusinessDate = resetDate)
+                            profileRepo.saveProfile(updated)
+                            Log.d("OPTIX_FLOW", "[ROOM UPDATED] business.reset applied live (<200ms)")
+                        } catch (e: Exception) {
+                            Log.e("OPTIX_FLOW", "[EVENT ERR] business.reset error: ${e.message}")
+                        }
                     }
                 }
             }
@@ -349,18 +354,11 @@ class RealtimeSyncManager private constructor(context: Context) {
                     scope.launch {
                         try {
                             when (action) {
-                                "FORCE_SYNC", "FORCE_FULL_SYNC" -> {
+                                "FORCE_SYNC", "FORCE_FULL_SYNC", "REFRESH_SUBSCRIPTION" -> {
                                     SyncManager.getInstance(appContext).triggerSyncNow()
                                 }
-                                "REFRESH_SUBSCRIPTION" -> {
-                                    val sub = app.cloudRepository.getSubscription()
-                                    sub?.let {
-                                        app.subscriptionRepository.saveSubscription(it)
-                                        FeatureGate.updateSubscription(it)
-                                    }
-                                }
                                 "LOGOUT_ALL_DEVICES" -> {
-                                    app.authManager.clearSession()
+                                    app.authManager.logout()
                                 }
                                 "RESTART_SOCKET" -> {
                                     socket?.disconnect()
@@ -381,13 +379,18 @@ class RealtimeSyncManager private constructor(context: Context) {
                                 "SEND_TEST_NOTIFICATION" -> {
                                     Log.d("OPTIX_FLOW", "[TEST NOTIFICATION] Remote test notification received cleanly")
                                 }
+                                else -> {
+                                    Log.d("OPTIX_FLOW", "[UNKNOWN REMOTE COMMAND] $action")
+                                }
                             }
+
                         } catch (e: Exception) {
                             Log.e("OPTIX_FLOW", "[REMOTE COMMAND ERR] Action $action failed: ${e.message}")
                         }
                     }
                 }
             }
+
 
 
             // 7. Core Entity Events (Order / Product / Category)

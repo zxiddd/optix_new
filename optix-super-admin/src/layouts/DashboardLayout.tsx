@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Store,
@@ -45,45 +45,54 @@ const navItems = [
   { icon: Settings, label: 'Global Settings', path: '/settings' },
 ];
 
-
-
 const DashboardLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_authenticated');
+    localStorage.removeItem('token');
+    navigate('/login');
+  };
 
   return (
     <div className="flex h-screen bg-background text-foreground dark overflow-hidden">
       {/* Sidebar */}
       <aside className={cn(
-        "bg-card border-r border-border transition-all duration-300 flex flex-col z-50",
+        "bg-card border-r border-border transition-all duration-300 flex flex-col z-50 h-screen",
         isSidebarOpen ? "w-64" : "w-20"
       )}>
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+        <div className="p-6 flex items-center gap-3 shrink-0">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shrink-0">
             <span className="font-black text-black text-xs">O</span>
           </div>
-          {isSidebarOpen && <span className="font-black text-xl tracking-tighter">OPTIX <span className="text-primary">ADMIN</span></span>}
+          {isSidebarOpen && <span className="font-black text-xl tracking-tighter truncate">OPTIX <span className="text-primary">ADMIN</span></span>}
         </div>
 
-        <nav className="flex-1 px-4 space-y-2 py-4">
+        {/* Scrollable Sidebar Nav */}
+        <nav className="flex-1 px-4 space-y-1.5 py-2 overflow-y-auto custom-scrollbar">
           {navItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
               className={({ isActive }) => cn(
-                "flex items-center gap-3 p-3 rounded-xl transition-colors",
+                "flex items-center gap-3 p-3 rounded-xl transition-colors text-xs font-medium",
                 isActive ? "bg-primary text-black font-bold" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
-              <item.icon size={20} />
-              {isSidebarOpen && <span>{item.label}</span>}
+              <item.icon size={18} className="shrink-0" />
+              {isSidebarOpen && <span className="truncate">{item.label}</span>}
             </NavLink>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-border">
-          <button className="flex items-center gap-3 p-3 w-full rounded-xl text-destructive hover:bg-destructive/10 transition-colors">
-            <Power size={20} />
-            {isSidebarOpen && <span className="font-bold">Logout</span>}
+        <div className="p-4 border-t border-border shrink-0">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 p-3 w-full rounded-xl text-destructive hover:bg-destructive/10 transition-colors text-xs font-bold"
+          >
+            <Power size={18} className="shrink-0" />
+            {isSidebarOpen && <span>Sign Out</span>}
           </button>
         </div>
       </aside>
@@ -91,7 +100,7 @@ const DashboardLayout: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Topbar */}
-        <header className="h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-8 z-40">
+        <header className="h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-8 z-40 shrink-0">
           <div className="flex items-center gap-4 flex-1">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-muted rounded-lg transition-colors">
               {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
@@ -102,7 +111,7 @@ const DashboardLayout: React.FC = () => {
               <input
                 type="text"
                 placeholder="Search businesses, orders..."
-                className="w-full bg-muted/50 border border-border rounded-xl py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full bg-muted/50 border border-border rounded-xl py-2 pl-10 pr-4 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
@@ -122,7 +131,7 @@ const DashboardLayout: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div className="text-right hidden sm:block">
                   <p className="text-sm font-bold leading-none">Super Admin</p>
-                  <p className="text-[10px] text-muted-foreground">Master Access</p>
+                  <p className="text-[10px] text-muted-foreground">admin@optix</p>
                 </div>
                 <div className="w-10 h-10 bg-muted rounded-xl flex items-center justify-center border border-border">
                   <User size={20} />

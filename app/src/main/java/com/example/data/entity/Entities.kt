@@ -9,8 +9,9 @@ data class BusinessProfile(
     val name: String = "",
     val address: String = "",
     val phone: String = "",
+    val country: String = "India",
     val gstNumber: String? = null,
-    val currency: String = "Rs.",
+    val currency: String = "₹",
     val footerMessage: String = "Thank You! Visit Again 🙏",
     val setupCompleted: Boolean = false,
     val menuSetupCompleted: Boolean = false,
@@ -59,14 +60,19 @@ data class PaymentQrEntity(
 @Entity(tableName = "user_subscriptions")
 data class UserSubscription(
     @PrimaryKey val uid: String = "",
-    val planId: String = "free", // free, monthly, 3_months, 6_months, 9_months, 12_months
-    val planName: String = "Free Plan",
+    val planId: String = "TRIAL", // TRIAL, STARTER, GROWTH
+    val planName: String = "Trial Plan",
     val amount: Double = 0.0,
-    val currency: String = "INR",
-    val billingCycle: String = "monthly",
+    val currency: String = "₹",
+    val country: String = "India",
+    val billingCycle: String = "MONTHLY", // MONTHLY, YEARLY
     val status: String = "active", 
+    val billsUsed: Int = 0,
+    val productsUsed: Int = 0,
+    val activationCode: String? = null,
     val purchaseDate: Long = System.currentTimeMillis(),
     val expiryDate: Long = 0L, 
+    val renewalDate: Long = 0L,
     val autoRenew: Boolean = false,
     val paymentId: String? = null,
     val orderId: String? = null,

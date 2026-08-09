@@ -196,7 +196,8 @@ fun MainShellScreen(
                             if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_PRODUCTS)) {
                                 list.add(Triple("items", "Menu", Icons.Default.RestaurantMenu))
                             }
-                            if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_REPORTS)) {
+                            if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_REPORTS) && 
+                                com.example.services.FeatureGate.canUseAdvancedReports()) {
                                 list.add(Triple("analytics", "Stats", Icons.Default.BarChart))
                             }
                             list.add(Triple("settings", "Settings", Icons.Default.Settings))
@@ -234,7 +235,8 @@ fun MainShellScreen(
                             if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_PRODUCTS)) {
                                 list.add(Triple("items", "Menu", Icons.Default.RestaurantMenu))
                             }
-                            if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_REPORTS)) {
+                            if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.VIEW_REPORTS) && 
+                                com.example.services.FeatureGate.canUseAdvancedReports()) {
                                 list.add(Triple("analytics", "Stats", Icons.Default.BarChart))
                             }
                             list.add(Triple("settings", "Settings", Icons.Default.Settings))
@@ -1254,11 +1256,13 @@ fun ItemsScreen(viewModel: ItemsViewModel, navController: NavController) {
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text("Duplicate Item", color = Color.White)
                     }
-                    TextButton(onClick = { 
-                        viewModel.toggleStockStatus(item)
-                        showLongPressMenu = null
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (item.isOutOfStock) "Mark In Stock" else "Mark Out Of Stock", color = if (item.isOutOfStock) Color.Green else Color.Yellow)
+                    if (com.example.services.FeatureGate.canUseInventory()) {
+                        TextButton(onClick = { 
+                            viewModel.toggleStockStatus(item)
+                            showLongPressMenu = null
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (item.isOutOfStock) "Mark In Stock" else "Mark Out Of Stock", color = if (item.isOutOfStock) Color.Green else Color.Yellow)
+                        }
                     }
                     TextButton(onClick = { 
                         viewModel.deleteItem(item)
@@ -1448,6 +1452,12 @@ fun AddEditItemScreen(navController: NavController, viewModel: ItemsViewModel) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ManageStaffScreen(navController: NavController, viewModel: StaffViewModel) {
+    if (!com.example.services.FeatureGate.canUseStaff()) {
+        LaunchedEffect(Unit) {
+            navController.popBackStack()
+        }
+        return
+    }
     val staffList by viewModel.filteredStaff.collectAsState()
     val rawStaffList by viewModel.allStaff.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -1793,6 +1803,12 @@ fun StaffDetailScreen(
     viewModel: StaffViewModel,
     settingsViewModel: SettingsViewModel
 ) {
+    if (!com.example.services.FeatureGate.canUseStaff()) {
+        LaunchedEffect(Unit) {
+            navController.popBackStack()
+        }
+        return
+    }
     val staffList by viewModel.allStaff.collectAsState()
     val activePermissions by viewModel.activePermissions.collectAsState()
     val profile by settingsViewModel.profile.collectAsState()
@@ -2443,6 +2459,18 @@ fun StatCard(label: String, value: String, modifier: Modifier, primary: Boolean 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalyticsScreen(viewModel: AnalyticsViewModel, profile: BusinessProfile?) {
+    if (!com.example.services.FeatureGate.canUseAdvancedReports()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Advanced Analytics is a Growth Feature", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Upgrade your plan to unlock detailed business insights.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
+        }
+        return
+    }
     val metrics by viewModel.metrics.collectAsState()
     val timeFrame by viewModel.timeFrame.collectAsState()
     val context = LocalContext.current
@@ -2770,13 +2798,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
         }
 
         if (isAdmin || canManageQr) {
+            val hasAccess = com.example.services.FeatureGate.canUseMultipleQr()
             // Payment Accounts Card
-            PremiumCard(onClick = { navController.navigate("payment_accounts") }) {
+            PremiumCard(onClick = { 
+                if (hasAccess) navController.navigate("payment_accounts") 
+                else navController.navigate("subscription")
+            }) {
                 SettingsItem(
                     icon = Icons.Default.QrCode,
                     title = "Payment Accounts",
-                    subtitle = "Manage payment QR codes",
-                    onClick = { navController.navigate("payment_accounts") }
+                    subtitle = if (hasAccess) "Manage payment QR codes" else "Upgrade to GROWTH for multiple QRs",
+                    trailing = {
+                        if (!hasAccess) Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
+                    },
+                    onClick = { 
+                        if (hasAccess) navController.navigate("payment_accounts") 
+                        else navController.navigate("subscription")
+                    }
                 )
             }
         }
@@ -2794,13 +2832,23 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
         }
 
         if (isAdmin || canManageReceipt) {
+            val hasAccess = com.example.services.FeatureGate.canUseAdvancedReceipt()
             // Receipt Customization
-            PremiumCard(onClick = { navController.navigate("receipt_customization") }) {
+            PremiumCard(onClick = { 
+                if (hasAccess) navController.navigate("receipt_customization") 
+                else navController.navigate("subscription")
+            }) {
                 SettingsItem(
                     icon = Icons.Default.Receipt,
                     title = "Receipt Customization",
-                    subtitle = "Edit headers & QR visibility",
-                    onClick = { navController.navigate("receipt_customization") }
+                    subtitle = if (hasAccess) "Edit headers & QR visibility" else "Upgrade to GROWTH to customize receipts",
+                    trailing = {
+                        if (!hasAccess) Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(16.dp))
+                    },
+                    onClick = { 
+                        if (hasAccess) navController.navigate("receipt_customization") 
+                        else navController.navigate("subscription")
+                    }
                 )
             }
         }
@@ -2821,7 +2869,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
                     SettingsItem(
                         icon = Icons.Default.People,
                         title = "Staff Management",
-                        subtitle = "Upgrade to GROWTH to manage staff",
+                        subtitle = com.example.services.FeatureGate.getFeatureSubtitle("STAFF_MANAGEMENT", "Upgrade to GROWTH to manage staff"),
+
                         trailing = { Icon(Icons.Default.Lock, null, tint = OrangePrimary, modifier = Modifier.size(16.dp)) },
                         onClick = { navController.navigate("subscription") }
                     )
@@ -2946,6 +2995,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, profileViewModel: BusinessSetup
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReceiptCustomizationScreen(navController: NavController, viewModel: SettingsViewModel) {
+    if (!com.example.services.FeatureGate.canUseAdvancedReceipt()) {
+        LaunchedEffect(Unit) {
+            navController.popBackStack()
+        }
+        return
+    }
     val context = LocalContext.current
     val profile by viewModel.profile.collectAsState(null)
     val activeQr by viewModel.activeQr.collectAsState(null)
@@ -3135,6 +3190,12 @@ fun ReceiptToggleItem(label: String, state: MutableState<Boolean>, onToggleChang
 @Composable
 fun PaymentAccountsScreen(navController: NavController, viewModel: SettingsViewModel) {
     val qrs by viewModel.allQrs.collectAsState()
+    if (!com.example.services.FeatureGate.canUseMultipleQr() && qrs.size >= 1) {
+        LaunchedEffect(Unit) {
+            navController.popBackStack()
+        }
+        return
+    }
     val context = LocalContext.current
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -3349,12 +3410,17 @@ fun SubscriptionScreen(navController: NavController, viewModel: SubscriptionView
                     val isTrial = currentPlanId == "TRIAL"
                     val isPaidAndSamePlan = !isTrial && currentPlanId == plan.planId
                     val isCurrent = isTrial && plan.planId == currentPlanId
+                    
+                    // A higher plan includes features of lower plans
+                    val isIncluded = currentPlanId == "GROWTH" && plan.planId == "STARTER"
+
                     PremiumPlanCard(
                         plan = plan,
                         cycle = billingCycle,
                         isCurrent = isCurrent,
                         isPaidCurrentPlan = isPaidAndSamePlan,
                         currentCycle = currentCycle,
+                        isIncluded = isIncluded,
                         onUpgrade = {
                             if (activity != null) {
                                 viewModel.initiateRazorpayPayment(activity, plan.planId, billingCycle)
@@ -3433,20 +3499,21 @@ fun PremiumPlanCard(
     isCurrent: Boolean,
     isPaidCurrentPlan: Boolean = false,
     currentCycle: String = "MONTHLY",
+    isIncluded: Boolean = false,
     onUpgrade: () -> Unit
 ) {
     val price = if (cycle == "MONTHLY") plan.monthlyPrice else plan.yearlyPrice
 
     // Determine button label
     val buttonLabel = when {
+        isIncluded -> "INCLUDED IN YOUR PLAN"
         isPaidCurrentPlan && cycle != currentCycle -> "SWITCH TO ${cycle}"
         isPaidCurrentPlan -> "RENEW ${plan.planName.uppercase()}"
         else -> "UPGRADE TO ${plan.planName.uppercase()}"
     }
 
     PremiumCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = { onUpgrade() }
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3455,6 +3522,10 @@ fun PremiumPlanCard(
                 if (isCurrent || isPaidCurrentPlan) {
                     Surface(color = Color.Green.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
                         Text("ACTIVE", color = Color.Green, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else if (isIncluded) {
+                    Surface(color = OrangePrimary.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
+                        Text("INCLUDED", color = OrangePrimary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -3489,9 +3560,13 @@ fun PremiumPlanCard(
                 Spacer(modifier = Modifier.height(20.dp))
                 Button(
                     onClick = onUpgrade,
+                    enabled = !isIncluded,
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isIncluded) Color.DarkGray else OrangePrimary,
+                        contentColor = if (isIncluded) Color.Gray else Color.Black
+                    )
                 ) {
                     Text(buttonLabel, fontWeight = FontWeight.Black)
                 }
@@ -3512,6 +3587,22 @@ fun SubscriptionStat(label: String, value: String, valueColor: Color) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SupportScreen(navController: NavController, viewModel: AiAssistantViewModel) {
+    if (!com.example.services.FeatureGate.canUseAI()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                Icon(Icons.Default.AutoAwesome, null, tint = OrangePrimary, modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("AI Assistant is a Growth Feature", color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Upgrade your plan to get personalized business help from our AI.", color = Color.Gray, fontSize = 13.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = { navController.navigate("subscription") }, colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary, contentColor = Color.Black)) {
+                    Text("VIEW PLANS")
+                }
+            }
+        }
+        return
+    }
     val messages by viewModel.messages.collectAsState()
     val isLimitReached by viewModel.isLimitReached.collectAsState()
     var userMessage by remember { mutableStateOf("") }

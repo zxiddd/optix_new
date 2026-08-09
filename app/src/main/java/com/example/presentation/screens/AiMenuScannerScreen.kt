@@ -452,7 +452,8 @@ fun StepProductWizard(
                     OutlinedTextField(
                         value = if (product.price == 0.0) "" else product.price.toString(),
                         onValueChange = { onUpdate(product.copy(price = it.toDoubleOrNull() ?: 0.0)) },
-                        label = { Text("Price (Rs.)") },
+                        label = { Text("Price") },
+                        prefix = { Text("Value") }, // Neutral
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                         singleLine = true,

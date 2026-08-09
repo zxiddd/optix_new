@@ -16,18 +16,29 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.presentation.screens.*
 import com.example.presentation.viewmodel.*
+import com.example.data.entity.UserSubscription
 import com.example.ui.theme.MyApplicationTheme
+import com.razorpay.Checkout
+import com.razorpay.PaymentData
+import com.razorpay.PaymentResultWithDataListener
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), PaymentResultWithDataListener {
+    companion object {
+        var paymentResultListener: ((Boolean, String?, PaymentData?) -> Unit)? = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        Checkout.preload(applicationContext)
         
         setContent {
             val application = OptixApplication.instance
@@ -73,6 +84,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onPaymentSuccess(razorpayPaymentId: String?, paymentData: PaymentData?) {
+        android.util.Log.d("OPTIX_PAYMENT", "[SUCCESS] ID: $razorpayPaymentId")
+        paymentResultListener?.invoke(true, razorpayPaymentId, paymentData)
+    }
+
+    override fun onPaymentError(code: Int, response: String?, paymentData: PaymentData?) {
+        android.util.Log.e("OPTIX_PAYMENT", "[ERROR] Code: $code, Resp: $response")
+        paymentResultListener?.invoke(false, response, paymentData)
+    }
 }
 
 @Composable
@@ -90,6 +111,38 @@ fun OptixBillingApp() {
     
     val isLoggedIn by authViewModel.isLoggedIn.collectAsState()
     val userRole by authViewModel.userRole.collectAsState()
+
+    // Enforce FeatureGate globally
+    LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            withContext(Dispatchers.IO) {
+                // Initial sync of FeatureGate from DB
+                val sub = application.subscriptionRepository.getSubscriptionSync()
+                val bills = application.billOrderRepository.getOrdersSync().size
+                val prods = application.billingItemRepository.getAllItemsSync().size
+                
+                val initialSub = (sub ?: UserSubscription()).copy(
+                    billsUsed = bills,
+                    productsUsed = prods
+                )
+                com.example.services.FeatureGate.updateSubscription(initialSub)
+            }
+
+            // Keep observing for plan changes
+            application.subscriptionRepository.subscription.collect { s ->
+                if (s != null) {
+                    withContext(Dispatchers.IO) {
+                        val currentBills = application.billOrderRepository.getOrdersSync().size
+                        val currentProds = application.billingItemRepository.getAllItemsSync().size
+                        val updatedSub = if (s.planId == "TRIAL") {
+                            s.copy(billsUsed = currentBills, productsUsed = currentProds)
+                        } else s
+                        com.example.services.FeatureGate.updateSubscription(updatedSub)
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {

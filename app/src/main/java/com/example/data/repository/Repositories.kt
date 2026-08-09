@@ -7,9 +7,12 @@ import kotlinx.coroutines.flow.Flow
 class BusinessProfileRepository(private val dao: BusinessProfileDao) {
     val profile: Flow<BusinessProfile?> = dao.getProfile()
 
-    fun getProfileSync(): BusinessProfile? = dao.getProfileSync()
+    suspend fun getProfileSync(): BusinessProfile? = dao.getProfileSync()
 
     suspend fun saveProfile(profile: BusinessProfile) = dao.insertProfile(profile)
+    
+    suspend fun getBillCountSync(): Int = 0 // Placeholder or use orderRepo
+    suspend fun getProductCountSync(): Int = 0
 }
 
 class CategoryRepository(private val dao: CategoryDao) {
@@ -33,7 +36,20 @@ class BillingItemRepository(private val dao: BillingItemDao) {
         return dao.getItemsByCategory(categoryId)
     }
 
-    suspend fun insert(item: BillingItem) = dao.insertItem(item)
+    suspend fun insert(item: BillingItem) {
+        val prods = getAllItemsSync().size
+        com.example.services.FeatureGate.setUsageOverrides(
+            bills = com.example.services.FeatureGate.subscription.value?.billsUsed ?: 0,
+            products = prods
+        )
+        
+        // Only check limit for NEW products
+        val isNew = getAllItemsSync().none { it.id == item.id }
+        if (isNew && !com.example.services.FeatureGate.canCreateProduct()) {
+            throw com.example.services.TrialLimitException("Product limit reached (5 products max in Trial)")
+        }
+        dao.insertItem(item)
+    }
 
     suspend fun update(item: BillingItem) = dao.updateItem(item)
 
@@ -55,7 +71,18 @@ class BillOrderRepository(private val dao: BillOrderDao) {
         return dao.getOrdersInTimeRange(start, end)
     }
 
-    suspend fun insert(order: BillOrder) = dao.insertOrder(order)
+    suspend fun insert(order: BillOrder) {
+        val bills = getOrdersSync().size
+        com.example.services.FeatureGate.setUsageOverrides(
+            bills = bills,
+            products = com.example.services.FeatureGate.subscription.value?.productsUsed ?: 0
+        )
+
+        if (!com.example.services.FeatureGate.canCreateBill()) {
+            throw com.example.services.TrialLimitException("Billing limit reached (50 bills max in Trial)")
+        }
+        dao.insertOrder(order)
+    }
 
     suspend fun delete(order: BillOrder) = dao.deleteOrder(order)
 }
@@ -63,7 +90,7 @@ class BillOrderRepository(private val dao: BillOrderDao) {
 class PrinterConfigRepository(private val dao: PrinterConfigDao) {
     val printerConfig: Flow<PrinterConfig?> = dao.getPrinterConfig()
 
-    fun getPrinterConfigSync(): PrinterConfig? = dao.getPrinterConfigSync()
+    suspend fun getPrinterConfigSync(): PrinterConfig? = dao.getPrinterConfigSync()
 
     suspend fun savePrinterConfig(config: PrinterConfig) = dao.insertPrinterConfig(config)
 }
@@ -102,6 +129,8 @@ class DailyReportRepository(private val dao: DailyReportDao) {
 
 class SubscriptionRepository(private val dao: SubscriptionDao) {
     val subscription: Flow<UserSubscription?> = dao.getSubscription()
+
+    suspend fun getSubscriptionSync(): UserSubscription? = dao.getSubscriptionSync()
 
     suspend fun saveSubscription(sub: UserSubscription) = dao.insertSubscription(sub)
 }
