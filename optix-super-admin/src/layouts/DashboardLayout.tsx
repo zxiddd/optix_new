@@ -34,7 +34,9 @@ const navItems = [
   { icon: Ticket, label: 'Subscriptions', path: '/subscriptions' },
   { icon: Database, label: 'Database Explorer', path: '/db-explorer' },
   { icon: Key, label: 'Activation Codes', path: '/activation-codes' },
+  { icon: Bell, label: 'Push Notifications', path: '/notifications' },
   { icon: Layers, label: 'Feature Flags', path: '/feature-flags' },
+
   { icon: Radio, label: 'Remote Control', path: '/remote-management' },
   { icon: Zap, label: 'Bulk Operations', path: '/bulk-actions' },
   { icon: Smartphone, label: 'Device Fleet', path: '/devices' },

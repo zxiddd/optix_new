@@ -20,7 +20,9 @@ import ContainerLogs from '@/pages/ContainerLogs';
 import SecurityBackups from '@/pages/SecurityBackups';
 import SystemAlerts from '@/pages/SystemAlerts';
 import DatabaseExplorer from '@/pages/DatabaseExplorer';
+import Notifications from '@/pages/Notifications';
 import Login from '@/pages/Login';
+
 
 const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = localStorage.getItem('admin_authenticated') === 'true';
@@ -44,6 +46,8 @@ const App: React.FC = () => {
           <Route path="subscriptions" element={<Subscriptions />} />
           <Route path="db-explorer" element={<DatabaseExplorer />} />
           <Route path="activation-codes" element={<ActivationCodes />} />
+          <Route path="notifications" element={<Notifications />} />
+
 
           <Route path="feature-flags" element={<FeatureFlags />} />
           <Route path="remote-management" element={<RemoteManagement />} />
