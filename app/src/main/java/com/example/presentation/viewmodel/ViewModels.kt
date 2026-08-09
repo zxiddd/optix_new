@@ -70,8 +70,9 @@ class ViewModelFactory(private val application: OptixApplication) : ViewModelPro
             modelClass.isAssignableFrom(com.example.presentation.viewmodel.AiMenuScannerViewModel::class.java) ->
                 com.example.presentation.viewmodel.AiMenuScannerViewModel(cloudRepo, application.billingItemRepository, application.categoryRepository) as T
             modelClass.isAssignableFrom(AiAssistantViewModel::class.java) ->
-                AiAssistantViewModel(cloudRepo, application.supportTicketRepository) as T
+                AiAssistantViewModel(cloudRepo, application.supportTicketRepository, authManager) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class")
+
 
         }
     }
@@ -2275,7 +2276,8 @@ class SettingsViewModel(
 // --- 10. AI ASSISTANT VIEWMODEL ---
 class AiAssistantViewModel(
     private val repository: CloudRepository,
-    private val supportRepo: SupportTicketRepository
+    private val supportRepo: SupportTicketRepository,
+    private val authManager: AuthManager
 ) : ViewModel() {
     private val _messages = MutableStateFlow<List<AiMessage>>(listOf(
         AiMessage("Hello! I am your Optix AI Copilot. Ask me about POS billing, inventory stock, reports, or click 'Ticket' to reach Super Admin Support live!", false)
@@ -2313,7 +2315,7 @@ class AiAssistantViewModel(
 
             withContext(Dispatchers.IO) {
                 try {
-                    val businessId = repository.profile.first()?.id ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
+                    val businessId = authManager.getBusinessId() ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
 
                     val url = java.net.URL("https://api.optixapp.in/api/v1/support/ai/chat")
                     val conn = url.openConnection() as java.net.HttpURLConnection
@@ -2358,7 +2360,7 @@ class AiAssistantViewModel(
     fun createSupportTicket(subject: String, category: String, initialMessage: String, onSuccess: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val businessId = repository.profile.first()?.id ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
+                val businessId = authManager.getBusinessId() ?: "00c75603-d16c-46a5-810d-26810f5dc9cb"
 
                 val url = java.net.URL("https://api.optixapp.in/api/v1/support/tickets")
                 val conn = url.openConnection() as java.net.HttpURLConnection
@@ -2368,6 +2370,7 @@ class AiAssistantViewModel(
 
                 val jsonPayload = org.json.JSONObject().apply {
                     put("businessId", businessId)
+
                     put("subject", subject)
                     put("category", category)
                     put("priority", "HIGH")

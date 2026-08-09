@@ -103,15 +103,26 @@ Your role:
     const ticketCount = await this.prisma.supportTicket.count();
     const ticketNumber = `TICK-${String(ticketCount + 1001).padStart(5, '0')}`;
 
+    let targetBusinessId = data.businessId;
+    if (targetBusinessId) {
+      const exists = await this.prisma.business.findUnique({ where: { id: targetBusinessId } });
+      if (!exists) targetBusinessId = '';
+    }
+    if (!targetBusinessId) {
+      const fallback = await this.prisma.business.findFirst();
+      targetBusinessId = fallback?.id || '00c75603-d16c-46a5-810d-26810f5dc9cb';
+    }
+
     const ticket = await this.prisma.supportTicket.create({
       data: {
         ticketNumber,
-        businessId: data.businessId,
+        businessId: targetBusinessId,
         subject: data.subject,
         category: data.category || 'GENERAL',
         priority: data.priority || 'MEDIUM',
         status: 'OPEN',
         createdById: data.createdById,
+
         messages: {
           create: {
             senderType: 'USER',
