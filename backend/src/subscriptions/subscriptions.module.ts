@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
-import { SubscriptionsController } from './subscriptions.controller';
+import { SubscriptionsController, StandaloneSubscriptionController } from './subscriptions.controller';
 import { SubscriptionsService } from './subscriptions.service';
+import { SyncModule } from '../sync/sync.module';
 
 @Module({
-  controllers: [SubscriptionsController],
+  imports: [SyncModule],
+  controllers: [SubscriptionsController, StandaloneSubscriptionController],
   providers: [SubscriptionsService],
   exports: [SubscriptionsService],
 })

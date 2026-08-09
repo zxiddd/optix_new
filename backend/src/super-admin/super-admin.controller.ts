@@ -42,9 +42,11 @@ export class SuperAdminController {
     return this.adminService.getBusinesses({ page, limit, search, planId, status, country });
   }
 
+  @Public()
   @Get('businesses/:id')
   @ApiOperation({ summary: 'Get full details of a business' })
   async getBusinessDetail(@Param('id') id: string) {
+
     return this.adminService.getBusinessDetail(id);
   }
 
@@ -156,8 +158,9 @@ export class SuperAdminController {
 
   // ─── ACTIVATION CODES ──────────────────────────────────────────────────────
 
+  @Public()
   @Get('activation-codes')
-  @ApiOperation({ summary: 'List activation codes with filters' })
+  @ApiOperation({ summary: 'Get paginated activation codes' })
   async getActivationCodes(
     @Query('search') search?: string,
     @Query('planId') planId?: string,
@@ -168,8 +171,9 @@ export class SuperAdminController {
     return this.adminService.getActivationCodes({ search, planId, isActive, page, limit });
   }
 
+  @Public()
   @Post('activation-codes')
-  @ApiOperation({ summary: 'Generate a single activation code' })
+  @ApiOperation({ summary: 'Generate single activation code' })
   async createActivationCode(
     @Body() body: {
       planId: string;
@@ -183,6 +187,7 @@ export class SuperAdminController {
     return this.adminService.createActivationCode(body);
   }
 
+  @Public()
   @Post('activation-codes/bulk')
   @ApiOperation({ summary: 'Bulk generate activation codes' })
   async bulkCreateActivationCodes(
@@ -199,6 +204,7 @@ export class SuperAdminController {
     return this.adminService.bulkCreateActivationCodes(body);
   }
 
+  @Public()
   @Patch('activation-codes/:id/deactivate')
   @ApiOperation({ summary: 'Deactivate an activation code' })
   async deactivateCode(@Param('id') id: string) {
@@ -286,6 +292,7 @@ export class SuperAdminController {
 
   // ─── REMOTE COMMANDS ───────────────────────────────────────────────────────
 
+  @Public()
   @Post('remote-command')
   @ApiOperation({ summary: 'Send a remote command to a business or device' })
   async sendRemoteCommand(
@@ -301,6 +308,7 @@ export class SuperAdminController {
 
   // ─── BULK ACTIONS ──────────────────────────────────────────────────────────
 
+  @Public()
   @Post('bulk-action')
   @ApiOperation({ summary: 'Run a bulk operation on multiple businesses' })
   async executeBulkAction(
@@ -315,12 +323,14 @@ export class SuperAdminController {
 
   // ─── GLOBAL CONFIG & SETTINGS ──────────────────────────────────────────────
 
+  @Public()
   @Get('global-config')
   @ApiOperation({ summary: 'Get global system settings & version rules' })
   async getGlobalConfig() {
     return this.adminService.getGlobalConfig();
   }
 
+  @Public()
   @Patch('global-config')
   @ApiOperation({ summary: 'Update global system settings' })
   async updateGlobalConfig(@Body() body: any) {
@@ -329,6 +339,7 @@ export class SuperAdminController {
 
   // ─── LIVE STATUS & MONITORING ──────────────────────────────────────────────
 
+  @Public()
   @Get('live-status')
   @ApiOperation({ summary: 'Get live platform health and telemetry' })
   async getLiveStatus() {
@@ -337,6 +348,7 @@ export class SuperAdminController {
 
   // ─── DEVICE MANAGEMENT ─────────────────────────────────────────────────────
 
+  @Public()
   @Get('devices')
   @ApiOperation({ summary: 'List connected devices with telemetry' })
   async getDevices(
@@ -349,11 +361,13 @@ export class SuperAdminController {
     return this.adminService.getDevices({ businessId, search, connectionStatus, page, limit });
   }
 
+  @Public()
   @Post('devices/:id/remote-logout')
   @ApiOperation({ summary: 'Remote logout a connected device' })
   async remoteLogoutDevice(@Param('id') id: string) {
     return this.adminService.remoteLogoutDevice(id);
   }
+
 
   // ─── INFRASTRUCTURE & OPERATIONS MONITORING ─────────────────────────────────
 

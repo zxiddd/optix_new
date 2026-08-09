@@ -34,4 +34,32 @@ export class SubscriptionsController {
   ) {
     return this.subscriptionsService.saveSubscription(businessId, body);
   }
+
+  @UseGuards(AtGuard)
+  @ApiBearerAuth()
+  @Post('activate')
+  @ApiOperation({ summary: 'Activate subscription via code' })
+  activateCode(
+    @GetCurrentUser('businessId') businessId: string,
+    @Body('code') code: string,
+  ) {
+    return this.subscriptionsService.activateCode(businessId, code);
+  }
+}
+
+@ApiTags('Subscription (Singular compatibility for Android App)')
+@Controller('subscription')
+export class StandaloneSubscriptionController {
+  constructor(private subscriptionsService: SubscriptionsService) {}
+
+  @UseGuards(AtGuard)
+  @ApiBearerAuth()
+  @Post('activate')
+  @ApiOperation({ summary: 'Activate subscription via code from Android POS app' })
+  activateCode(
+    @GetCurrentUser('businessId') businessId: string,
+    @Body('code') code: string,
+  ) {
+    return this.subscriptionsService.activateCode(businessId, code);
+  }
 }

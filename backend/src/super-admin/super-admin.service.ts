@@ -125,22 +125,37 @@ export class SuperAdminService {
 
     if (!business) throw new NotFoundException('Business not found');
 
-    const recentOrders = await this.prisma.order.findMany({
-      where: { businessId: id },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      include: { items: true },
-    });
+    const [recentOrders, recentLogs, staffList, productsList] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { businessId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: { items: true },
+      }).catch(() => []),
+      this.prisma.staffActivityLog.findMany({
+        where: { businessId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: { staff: { select: { name: true } } },
+      }).catch(() => []),
+      this.prisma.staff.findMany({
+        where: { businessId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }).catch(() => []),
+      this.prisma.product.findMany({
+        where: { businessId: id },
+        orderBy: { name: 'asc' },
+        take: 20,
+        include: { category: true },
+      }).catch(() => []),
+    ]);
 
-    const recentLogs = await this.prisma.staffActivityLog.findMany({
-      where: { businessId: id },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      include: { staff: { select: { name: true } } },
-    });
-
-    return { ...business, recentOrders, recentLogs };
+    return { ...business, recentOrders, recentLogs, staffList, productsList };
   }
+
+
+
 
   async updateBusinessStatus(id: string, status: 'ACTIVE' | 'EXPIRED' | 'CANCELLED' | 'SUSPENDED') {
     const sub = await this.prisma.subscription.findUnique({ where: { businessId: id } });
