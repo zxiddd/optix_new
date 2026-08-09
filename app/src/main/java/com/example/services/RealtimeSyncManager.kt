@@ -1,6 +1,14 @@
 package com.example.services
 
 import android.content.Context
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import android.util.Log
 import com.example.OptixApplication
 import com.example.data.entity.*
@@ -11,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+
 
 class RealtimeSyncManager private constructor(context: Context) {
     private val appContext = context.applicationContext
@@ -402,12 +411,21 @@ class RealtimeSyncManager private constructor(context: Context) {
 
                     Log.d("OPTIX_FLOW", "[ADMIN NOTIFICATION RECEIVED] Title: $title | Message: $message | Type: $type")
 
+                    // 1. Trigger OS Heads-Up Notification
+                    showAdminNotification(appContext, title, message)
+
+                    // 2. Toast alert on main thread
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(appContext, "🔔 $title: $message", Toast.LENGTH_LONG).show()
+                    }
+
+                    // 3. Save to Room database
                     scope.launch {
                         try {
                             app.notificationRepository.insert(
                                 com.example.data.entity.NotificationEntity(
                                     id = java.util.UUID.randomUUID().toString(),
-                                    businessId = app.currentBusinessId ?: "",
+                                    businessId = app.authManager.getBusinessId() ?: "",
                                     title = title,
                                     message = message,
                                     type = type,
@@ -422,6 +440,7 @@ class RealtimeSyncManager private constructor(context: Context) {
                     }
                 }
             }
+
 
 
 
@@ -847,6 +866,51 @@ class RealtimeSyncManager private constructor(context: Context) {
             Log.d("OPTIX_FLOW", "[SOCKET DISCONNECTED] Socket closed cleanly")
         } catch (e: Exception) {
             Log.e("OPTIX_FLOW", "[SOCKET DISCONNECT ERR] ${e.message}")
+        }
+    }
+
+    private fun showAdminNotification(context: Context, title: String, message: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "optix_admin_notifications"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Optix Admin Broadcasts",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "High priority notifications from Optix Super Admin"
+                    enableLights(true)
+                    enableVibration(true)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val intent = Intent(context, com.example.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+
+            notificationManager.notify((System.currentTimeMillis() % 100000).toInt(), builder.build())
+            Log.d("OPTIX_FLOW", "[SYSTEM NOTIFICATION DISPLAYED] $title")
+        } catch (e: Exception) {
+            Log.e("OPTIX_FLOW", "[SYSTEM NOTIFICATION ERR] ${e.message}")
         }
     }
 

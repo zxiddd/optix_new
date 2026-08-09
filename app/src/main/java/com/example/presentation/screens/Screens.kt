@@ -187,6 +187,7 @@ fun MainShellScreen(
                         val userPermissions by OptixApplication.instance.authManager.userPermissions.collectAsState()
                         val navItems = remember(userPermissions, isStaff) {
                             val list = mutableListOf<Triple<String, String, ImageVector>>()
+                            list.add(Triple("projexa", "Projexa", Icons.Default.Dashboard))
                             if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.CREATE_BILLS)) {
                                 list.add(Triple("billing", "Billing", Icons.Default.ReceiptLong))
                             }
@@ -226,6 +227,7 @@ fun MainShellScreen(
                         val userPermissions by OptixApplication.instance.authManager.userPermissions.collectAsState()
                         val navItems = remember(userPermissions, isStaff) {
                             val list = mutableListOf<Triple<String, String, ImageVector>>()
+                            list.add(Triple("projexa", "Projexa", Icons.Default.Dashboard))
                             if (com.example.services.PermissionManager.can(com.example.services.PermissionManager.CREATE_BILLS)) {
                                 list.add(Triple("billing", "Billing", Icons.Default.ReceiptLong))
                             }
@@ -260,6 +262,7 @@ fun MainShellScreen(
 
                 Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                     when (currentTab) {
+                        "projexa" -> ProjexaCommandCenterScreen()
                         "billing" -> BillingScreen(billingViewModel, currentProfile, userRole, onUpgrade = { navController.navigate("subscription") })
                         "history" -> HistoryScreen(historyViewModel, currentProfile, userRole)
                         "items" -> ItemsScreen(itemsViewModel, navController)
@@ -3763,5 +3766,279 @@ fun ThermalReceiptDialog(receiptText: String, currency: String, onDismiss: () ->
                 }
             }
         }
+    }
+}
+
+
+// --- PROJEXA COMMAND CENTER PROTOTYPE ---
+private data class ProjexaMetric(
+    val label: String,
+    val value: String,
+    val detail: String,
+    val color: Color,
+    val icon: ImageVector
+)
+
+private data class ProjexaModule(
+    val title: String,
+    val subtitle: String,
+    val status: String,
+    val icon: ImageVector,
+    val accent: Color
+)
+
+private data class ProjexaDocument(
+    val title: String,
+    val number: String,
+    val revision: String,
+    val status: String,
+    val reviewer: String,
+    val warning: Boolean = false
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProjexaCommandCenterScreen() {
+    val modules = remember {
+        listOf(
+            ProjexaModule("Company onboarding", "Registration, company profile, project setup, user invites and AI Excel/CSV import.", "Setup 72%", Icons.Default.Business, Color(0xFF2DD4BF)),
+            ProjexaModule("Multi-project operations", "Remote sites, areas, manpower, daily progress, approvals and management overview.", "3 active", Icons.Default.LocationOn, Color(0xFF60A5FA)),
+            ProjexaModule("Document control", "Folder access, drawing uploads, revision history, transmittals and latest approved files.", "18 pending", Icons.Default.Folder, Color(0xFFFBBF24)),
+            ProjexaModule("Attendance", "Worker, foreman and supervisor attendance with GPS, trade counts and overtime.", "426 present", Icons.Default.People, Color(0xFFA78BFA)),
+            ProjexaModule("Store inventory", "Stock in/out, store issue vouchers, low stock alerts and site-wise balances.", "7 low stock", Icons.Default.Inventory, Color(0xFFFB7185)),
+            ProjexaModule("Material requests", "Supervisor and PE request flow from approval to procurement, receipt and site issue.", "12 open", Icons.Default.Assignment, Color(0xFFF97316)),
+            ProjexaModule("QC department", "Material submittals, MIR, WIR, RFIs, NCRs, checklists and consultant comments.", "9 reviews", Icons.Default.Verified, Color(0xFF22C55E)),
+            ProjexaModule("Safety permits", "Area-wise hot work, height work, electrical, excavation and lifting permits.", "5 active", Icons.Default.Security, Color(0xFFEF4444)),
+            ProjexaModule("Finance", "Cash flow, expenses, contractor payments, incoming payments and budget forecasts.", "SAR 18.4M", Icons.Default.AccountBalance, Color(0xFF38BDF8))
+        )
+    }
+    val metrics = remember {
+        listOf(
+            ProjexaMetric("Projects", "3", "Hyundai EV, Yamama Palace, KFIA", Color(0xFF60A5FA), Icons.Default.Domain),
+            ProjexaMetric("Manpower", "426", "34 absent, 61 overtime", Color(0xFFA78BFA), Icons.Default.Groups),
+            ProjexaMetric("Cash flow", "SAR 8.2M", "Incoming this month", Color(0xFF22C55E), Icons.Default.Payments),
+            ProjexaMetric("Approvals", "44", "Docs, RFIs, permits, payments", Color(0xFFFBBF24), Icons.Default.PendingActions)
+        )
+    }
+    val documents = remember {
+        listOf(
+            ProjexaDocument("HVAC duct layout - Zone 3", "HYD-HVAC-SD-204", "Rev C", "Approved for Construction", "Consultant QC"),
+            ProjexaDocument("Chilled water riser detail", "HYD-MEP-CW-118", "Rev B", "Under Review", "MEP Lead"),
+            ProjexaDocument("Basement civil opening plan", "YAM-CIV-OP-044", "Rev A", "Superseded", "Document Controller", warning = true)
+        )
+    }
+    val permits = remember {
+        listOf(
+            "Hot work - Factory roof AHU platform - expires 16:30",
+            "Height work - Yamama Palace lobby ducting - safety review due",
+            "Electrical isolation - Dammam airport pump room - active"
+        )
+    }
+
+    Scaffold(
+        containerColor = DarkBackground,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Projexa", color = Color.White, fontWeight = FontWeight.Black)
+                        Text("Construction project command center", color = Color.Gray, fontSize = 12.sp)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { }) { Icon(Icons.Default.Search, null, tint = Color.White) }
+                    IconButton(onClick = { }) { Icon(Icons.Default.AutoAwesome, null, tint = OrangePrimary) }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item { ProjexaHeroCard() }
+            item { ProjexaMetricsGrid(metrics) }
+            item { ProjexaOnboardingCard() }
+            item { ProjexaSectionTitle("Operations Modules", "Website dashboard, mobile app, and mobile web split") }
+            items(modules) { module -> ProjexaModuleCard(module) }
+            item { ProjexaSectionTitle("Document Versioning", "GitHub-style revision history for drawings and files") }
+            items(documents) { document -> ProjexaDocumentRow(document) }
+            item { ProjexaSectionTitle("Safety Today", "Area-wise permits visible to the safety department") }
+            items(permits) { permit -> ProjexaPermitRow(permit) }
+            item { ProjexaAiImportCard() }
+            item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaHeroCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827))
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Factory, null, tint = OrangePrimary, modifier = Modifier.size(34.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Hyundai EV Factory - Jeddah", color = Color.White, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Text("HVAC, MEP, civil and maintenance execution", color = Color.Gray, fontSize = 13.sp)
+                }
+            }
+            Text(
+                "Today: 426 workers present, 18 document approvals pending, 12 material requests open, 5 active safety permits and 3 RFIs overdue.",
+                color = Color(0xFFE5E7EB),
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            )
+            LinearProgressIndicator(
+                progress = 0.68f,
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
+                color = OrangePrimary,
+                trackColor = Color.White.copy(alpha = 0.12f)
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Planned 74%", color = Color.Gray, fontSize = 12.sp)
+                Text("Actual 68%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaMetricsGrid(metrics: List<ProjexaMetric>) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(150.dp),
+        modifier = Modifier.height(210.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        userScrollEnabled = false
+    ) {
+        items(metrics) { metric ->
+            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+                Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Icon(metric.icon, null, tint = metric.color, modifier = Modifier.size(24.dp))
+                    Column {
+                        Text(metric.value, color = Color.White, fontWeight = FontWeight.Black, fontSize = 21.sp)
+                        Text(metric.label, color = Color.Gray, fontSize = 12.sp)
+                        Text(metric.detail, color = Color(0xFFCBD5E1), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaOnboardingCard() {
+    PremiumCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.PersonAdd, null, tint = OrangePrimary)
+            Spacer(modifier = Modifier.width(10.dp))
+            Text("Company Registration Onboarding", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        listOf(
+            "Company signup with industry, currency, timezone and logo",
+            "Create first project with remote locations and areas",
+            "Invite PM, PE, QC, Safety, Store, Accounts, Contractor and Consultant users",
+            "AI imports Excel/CSV registers for attendance, inventory, RFIs, drawings and payments"
+        ).forEach { item ->
+            Row(modifier = Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF22C55E), modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(item, color = Color.LightGray, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaSectionTitle(title: String, subtitle: String) {
+    Column {
+        Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        Text(subtitle, color = Color.Gray, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ProjexaModuleCard(module: ProjexaModule) {
+    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(module.accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(module.icon, null, tint = module.accent, modifier = Modifier.size(24.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(module.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(module.subtitle, color = Color.Gray, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+            Surface(color = module.accent.copy(alpha = 0.16f), shape = RoundedCornerShape(10.dp)) {
+                Text(module.status, color = module.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaDocumentRow(document: ProjexaDocument) {
+    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = SurfaceDark)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Description, null, tint = if (document.warning) Color(0xFFEF4444) else OrangePrimary)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(document.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("${document.number} - ${document.revision} - ${document.reviewer}", color = Color.Gray, fontSize = 12.sp)
+                }
+            }
+            if (document.warning) {
+                Surface(color = Color(0xFF7F1D1D), shape = RoundedCornerShape(10.dp)) {
+                    Text("SUPERSEDED VERSION. DO NOT USE FOR CONSTRUCTION.", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(10.dp))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = { }, label = { Text(document.status) }, leadingIcon = { Icon(Icons.Default.History, null, modifier = Modifier.size(16.dp)) })
+                AssistChip(onClick = { }, label = { Text("Version history") }, leadingIcon = { Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp)) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjexaPermitRow(permit: String) {
+    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1F1415))) {
+        Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Security, null, tint = Color(0xFFEF4444))
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(permit, color = Color(0xFFFEE2E2), fontSize = 13.sp, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ProjexaAiImportCard() {
+    PremiumCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.AutoAwesome, null, tint = OrangePrimary)
+            Spacer(modifier = Modifier.width(10.dp))
+            Text("AI Copilot and Data Import", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            "Upload old Excel logs and Projexa maps columns into attendance, material requests, drawing registers, RFIs, expenses and contractor payments. Ask natural questions like: show low stock items, generate weekly report, or find latest approved Zone 3 HVAC drawings.",
+            color = Color.LightGray,
+            fontSize = 13.sp,
+            lineHeight = 19.sp
+        )
     }
 }
