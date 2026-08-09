@@ -103,6 +103,7 @@ export class SuperAdminController {
 
   // ─── SUBSCRIPTIONS ─────────────────────────────────────────────────────────
 
+  @Public()
   @Get('subscriptions')
   @ApiOperation({ summary: 'Get all subscriptions with filters' })
   async getSubscriptions(
@@ -116,12 +117,14 @@ export class SuperAdminController {
     return this.adminService.getAllSubscriptions({ status, planId, country, page, limit, search });
   }
 
+  @Public()
   @Get('subscriptions/:id')
   @ApiOperation({ summary: 'Get single subscription with full history' })
   async getSubscriptionDetail(@Param('id') id: string) {
     return this.adminService.getSubscriptionDetail(id);
   }
 
+  @Public()
   @Patch('subscriptions/:businessId/plan')
   @ApiOperation({ summary: 'Change plan (upgrade or downgrade)' })
   async changePlan(
@@ -132,6 +135,7 @@ export class SuperAdminController {
     return this.adminService.changePlan(businessId, planId, billingCycle);
   }
 
+  @Public()
   @Patch('subscriptions/:businessId/extend')
   @ApiOperation({ summary: 'Extend subscription by N days' })
   async extendSubscription(
@@ -141,6 +145,7 @@ export class SuperAdminController {
     return this.adminService.extendSubscription(businessId, days);
   }
 
+  @Public()
   @Patch('subscriptions/:businessId/status')
   @ApiOperation({ summary: 'Pause, Resume, Cancel, or Activate subscription' })
   async updateSubscriptionStatus(
@@ -150,11 +155,13 @@ export class SuperAdminController {
     return this.adminService.updateSubscriptionStatus(businessId, status);
   }
 
+  @Public()
   @Post('subscriptions/:businessId/reset-trial')
   @ApiOperation({ summary: 'Reset trial usage counters' })
   async resetSubscriptionTrial(@Param('businessId') businessId: string) {
     return this.adminService.resetTrialLimits(businessId);
   }
+
 
   // ─── ACTIVATION CODES ──────────────────────────────────────────────────────
 
