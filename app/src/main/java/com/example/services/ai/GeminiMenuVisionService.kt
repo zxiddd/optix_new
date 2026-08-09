@@ -41,8 +41,10 @@ data class GeminiMenuResponse(
 
 object GeminiMenuVisionService {
 
-    private const val GEMINI_API_KEY = ""
-    private const val API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY"
+    private val GEMINI_API_KEY = System.getenv("GEMINI_API_KEY") ?: ""
+    private val API_URL: String
+        get() = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY"
+
 
     private val client by lazy {
         OkHttpClient.Builder()
