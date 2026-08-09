@@ -1,17 +1,18 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SyncGateway } from '../sync/sync.gateway';
 import * as crypto from 'crypto';
 import { hash } from '@node-rs/argon2';
 
-
-
 @Injectable()
 export class SuperAdminService {
+  private readonly logger = new Logger(SuperAdminService.name);
+
   constructor(
     private prisma: PrismaService,
     private syncGateway: SyncGateway,
   ) {}
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // BUSINESSES
@@ -702,62 +703,64 @@ export class SuperAdminService {
     notes?: string;
     businessId?: string;
   }) {
-    const targetVal = data.level === 'GLOBAL' ? null : (data.target || null);
-    const existing = await this.prisma.featureFlag.findFirst({
-      where: {
-        featureKey: data.featureKey,
-        level: data.level,
-        target: targetVal,
-      },
-    });
+    try {
+      const targetVal = data.level === 'GLOBAL' ? null : (data.target || null);
 
-    let flag: any;
-    if (existing) {
-      flag = await this.prisma.featureFlag.update({
-        where: { id: existing.id },
-        data: {
-          status: data.status,
-          notes: data.notes,
-          businessId: data.businessId || targetVal || null,
-        },
-      });
-      await this.writeAdminAuditLog(
-        data.businessId || 'GLOBAL',
-        'UPDATE_FEATURE_FLAG',
-        'FEATURE_FLAG',
-        flag.id,
-        { status: existing.status },
-        { status: flag.status, level: flag.level, featureKey: flag.featureKey }
-      );
-    } else {
-      flag = await this.prisma.featureFlag.create({
-        data: {
+      let resolvedBusinessId: string | null = null;
+      const candidateId = data.businessId || (data.level === 'BUSINESS' ? targetVal : null);
+      if (candidateId) {
+        const bExists = await this.prisma.business.findUnique({ where: { id: candidateId } });
+        if (bExists) resolvedBusinessId = candidateId;
+      }
+
+      const existing = await this.prisma.featureFlag.findFirst({
+        where: {
           featureKey: data.featureKey,
-          status: data.status,
           level: data.level,
           target: targetVal,
-          notes: data.notes,
-          businessId: data.businessId || (data.level === 'BUSINESS' ? targetVal : null),
         },
       });
-      await this.writeAdminAuditLog(
-        data.businessId || 'GLOBAL',
-        'CREATE_FEATURE_FLAG',
-        'FEATURE_FLAG',
-        flag.id,
-        null,
-        { status: flag.status, level: flag.level, featureKey: flag.featureKey }
-      );
-    }
 
-    if (data.level === 'BUSINESS' && targetVal) {
-      this.syncGateway.emitToBusiness(targetVal, 'feature_flags_updated', { [data.featureKey]: data.status });
-    } else {
-      this.syncGateway.emitToAll('feature_flags_updated', { [data.featureKey]: data.status });
-    }
+      let flag: any;
+      if (existing) {
+        flag = await this.prisma.featureFlag.update({
+          where: { id: existing.id },
+          data: {
+            status: data.status,
+            notes: data.notes,
+            businessId: resolvedBusinessId,
+          },
+        });
+      } else {
+        flag = await this.prisma.featureFlag.create({
+          data: {
+            featureKey: data.featureKey,
+            status: data.status,
+            level: data.level,
+            target: targetVal,
+            notes: data.notes,
+            businessId: resolvedBusinessId,
+          },
+        });
+      }
 
-    return flag;
+      try {
+        if (data.level === 'BUSINESS' && targetVal) {
+          this.syncGateway.emitToBusiness(targetVal, 'feature_flags_updated', { [data.featureKey]: data.status });
+        } else {
+          this.syncGateway.emitToAll('feature_flags_updated', { [data.featureKey]: data.status });
+        }
+      } catch (e) {}
+
+      return flag;
+    } catch (error: any) {
+      console.error('UPSERT ERROR STACK:', error?.stack || error);
+      throw error;
+    }
   }
+
+
+
 
   async deleteFeatureFlag(id: string) {
     const flag = await this.prisma.featureFlag.findUnique({ where: { id } });
@@ -1498,7 +1501,6 @@ export class SuperAdminService {
   // ─────────────────────────────────────────────────────────────────────────
 
   private async writeAdminAuditLog(
-
     businessId: string,
     action: string,
     entity: string,
@@ -1507,9 +1509,15 @@ export class SuperAdminService {
     newValue: any,
   ) {
     try {
+      let validBusinessId: string | null = null;
+      if (businessId) {
+        const b = await this.prisma.business.findUnique({ where: { id: businessId } });
+        if (b) validBusinessId = businessId;
+      }
+
       await this.prisma.auditLog.create({
         data: {
-          businessId,
+          businessId: validBusinessId,
           action,
           entity,
           entityId,
@@ -1522,4 +1530,5 @@ export class SuperAdminService {
       // Non-blocking — audit log failure should not break the operation
     }
   }
+
 }

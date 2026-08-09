@@ -1,0 +1,383 @@
+import { SyncService } from './sync.service';
+import { SyncPushDto } from './dto/sync.dto';
+export declare class SyncController {
+    private syncService;
+    constructor(syncService: SyncService);
+    push(businessId: string, dto: SyncPushDto): Promise<{
+        status: string;
+        timestamp: number;
+    }>;
+    pull(businessId: string, lastSync?: string, since?: string): Promise<{
+        business: {
+            settings: {
+                id: string;
+                businessId: string;
+                currency: string;
+                openingTime: string;
+                closingTime: string;
+                timezone: string;
+                taxEnabled: boolean;
+                taxPercentage: import("@prisma/client/runtime/library").Decimal;
+                lastResetBusinessDate: string | null;
+            };
+            receiptSettings: {
+                id: string;
+                businessId: string;
+                taxPercentage: import("@prisma/client/runtime/library").Decimal;
+                showLogo: boolean;
+                logoUrl: string | null;
+                headerMessage: string | null;
+                footerMessage: string;
+                showBusinessName: boolean;
+                showAddress: boolean;
+                showPhone: boolean;
+                showGst: boolean;
+                showDateTime: boolean;
+                showOrderNumber: boolean;
+                showCashierName: boolean;
+                showDiscounts: boolean;
+                showTaxes: boolean;
+                qrEnabled: boolean;
+                showVisitAgain: boolean;
+            };
+            printerSettings: {
+                id: string;
+                businessId: string;
+                deviceName: string | null;
+                deviceAddress: string | null;
+                connectionType: string;
+                paperWidth: number;
+                autoConnect: boolean;
+                copies: number;
+                isDefault: boolean;
+            }[];
+        } & {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            address: string | null;
+            country: string;
+            setupCompleted: boolean;
+            tokenCounter: number;
+            lastTokenResetDateTime: Date;
+            createdAt: Date;
+            updatedAt: Date;
+            isDeleted: boolean;
+            deletedAt: Date | null;
+            deletedBy: string | null;
+        };
+        subscription: {
+            plan: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                price: import("@prisma/client/runtime/library").Decimal;
+                billingPeriod: string;
+                features: import("@prisma/client/runtime/library").JsonValue;
+            };
+        } & {
+            id: string;
+            country: string;
+            createdAt: Date;
+            updatedAt: Date;
+            businessId: string;
+            activationCode: string | null;
+            planId: string;
+            status: import(".prisma/client").$Enums.SubscriptionStatus;
+            currency: string;
+            billingCycle: import(".prisma/client").$Enums.BillingCycle;
+            billsUsed: number;
+            productsUsed: number;
+            expiryDate: Date;
+            renewalDate: Date | null;
+        };
+        categories: {
+            id: string;
+            name: string;
+            isDeleted: boolean;
+            businessId: string;
+            version: number;
+            lastModified: Date;
+            sortOrder: number;
+        }[];
+        products: {
+            imageUrl: string;
+            id: string;
+            name: string;
+            isDeleted: boolean;
+            businessId: string;
+            description: string | null;
+            barcode: string | null;
+            sku: string | null;
+            price: import("@prisma/client/runtime/library").Decimal;
+            pricingType: import(".prisma/client").$Enums.PricingType;
+            unit: string;
+            categoryId: string;
+            isOutOfStock: boolean;
+            version: number;
+            lastModified: Date;
+        }[];
+        orders: {
+            id: string;
+            tokenNumber: string;
+            invoiceNumber: string;
+            timestamp: number;
+            subtotal: number;
+            discount: number;
+            tax: number;
+            total: number;
+            orderItemsJson: string;
+            paymentMethod: string;
+            cashierName: string;
+        }[];
+        staff: {
+            permissions: any[];
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            createdAt: Date;
+            updatedAt: Date;
+            password: string;
+            role: import(".prisma/client").$Enums.UserRole;
+            businessId: string;
+            username: string;
+            isDisabled: boolean;
+            failedLoginCount: number;
+            lastFailedLoginAt: Date | null;
+            lastActivityAt: Date | null;
+        }[];
+        paymentQrs: {
+            imageUrl: string;
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            businessId: string;
+            isActive: boolean;
+            upiId: string | null;
+        }[];
+        customers: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            createdAt: Date;
+            updatedAt: Date;
+            isDeleted: boolean;
+            businessId: string;
+            totalDebt: import("@prisma/client/runtime/library").Decimal;
+        }[];
+        expenses: {
+            id: string;
+            createdAt: Date;
+            businessId: string;
+            title: string;
+            categoryId: string | null;
+            amount: import("@prisma/client/runtime/library").Decimal;
+            note: string | null;
+            date: Date;
+        }[];
+        serverTime: number;
+    }>;
+    fullDump(businessId: string): Promise<{
+        business: {
+            settings: {
+                id: string;
+                businessId: string;
+                currency: string;
+                openingTime: string;
+                closingTime: string;
+                timezone: string;
+                taxEnabled: boolean;
+                taxPercentage: import("@prisma/client/runtime/library").Decimal;
+                lastResetBusinessDate: string | null;
+            };
+            receiptSettings: {
+                id: string;
+                businessId: string;
+                taxPercentage: import("@prisma/client/runtime/library").Decimal;
+                showLogo: boolean;
+                logoUrl: string | null;
+                headerMessage: string | null;
+                footerMessage: string;
+                showBusinessName: boolean;
+                showAddress: boolean;
+                showPhone: boolean;
+                showGst: boolean;
+                showDateTime: boolean;
+                showOrderNumber: boolean;
+                showCashierName: boolean;
+                showDiscounts: boolean;
+                showTaxes: boolean;
+                qrEnabled: boolean;
+                showVisitAgain: boolean;
+            };
+            printerSettings: {
+                id: string;
+                businessId: string;
+                deviceName: string | null;
+                deviceAddress: string | null;
+                connectionType: string;
+                paperWidth: number;
+                autoConnect: boolean;
+                copies: number;
+                isDefault: boolean;
+            }[];
+        } & {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            address: string | null;
+            country: string;
+            setupCompleted: boolean;
+            tokenCounter: number;
+            lastTokenResetDateTime: Date;
+            createdAt: Date;
+            updatedAt: Date;
+            isDeleted: boolean;
+            deletedAt: Date | null;
+            deletedBy: string | null;
+        };
+        subscription: {
+            plan: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                price: import("@prisma/client/runtime/library").Decimal;
+                billingPeriod: string;
+                features: import("@prisma/client/runtime/library").JsonValue;
+            };
+        } & {
+            id: string;
+            country: string;
+            createdAt: Date;
+            updatedAt: Date;
+            businessId: string;
+            activationCode: string | null;
+            planId: string;
+            status: import(".prisma/client").$Enums.SubscriptionStatus;
+            currency: string;
+            billingCycle: import(".prisma/client").$Enums.BillingCycle;
+            billsUsed: number;
+            productsUsed: number;
+            expiryDate: Date;
+            renewalDate: Date | null;
+        };
+        categories: {
+            id: string;
+            name: string;
+            isDeleted: boolean;
+            businessId: string;
+            version: number;
+            lastModified: Date;
+            sortOrder: number;
+        }[];
+        products: {
+            price: number;
+            imageUrl: string;
+            id: string;
+            name: string;
+            isDeleted: boolean;
+            businessId: string;
+            description: string | null;
+            barcode: string | null;
+            sku: string | null;
+            pricingType: import(".prisma/client").$Enums.PricingType;
+            unit: string;
+            categoryId: string;
+            isOutOfStock: boolean;
+            version: number;
+            lastModified: Date;
+        }[];
+        orders: {
+            id: string;
+            tokenNumber: string;
+            invoiceNumber: string;
+            timestamp: number;
+            subtotal: number;
+            discount: number;
+            tax: number;
+            total: number;
+            orderItemsJson: string;
+            paymentMethod: string;
+            cashierName: string;
+        }[];
+        staff: {
+            permissions: any[];
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            createdAt: Date;
+            updatedAt: Date;
+            password: string;
+            role: import(".prisma/client").$Enums.UserRole;
+            businessId: string;
+            username: string;
+            isDisabled: boolean;
+            failedLoginCount: number;
+            lastFailedLoginAt: Date | null;
+            lastActivityAt: Date | null;
+        }[];
+        paymentQrs: {
+            imageUrl: string;
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            businessId: string;
+            isActive: boolean;
+            upiId: string | null;
+        }[];
+        customers: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            createdAt: Date;
+            updatedAt: Date;
+            isDeleted: boolean;
+            businessId: string;
+            totalDebt: import("@prisma/client/runtime/library").Decimal;
+        }[];
+        expenses: {
+            id: string;
+            createdAt: Date;
+            businessId: string;
+            title: string;
+            categoryId: string | null;
+            amount: import("@prisma/client/runtime/library").Decimal;
+            note: string | null;
+            date: Date;
+        }[];
+        sessions: {
+            id: string;
+            businessId: string;
+            deviceId: string | null;
+            ipAddress: string | null;
+            staffId: string;
+            deviceName: string | null;
+            loginAt: Date;
+            logoutAt: Date | null;
+            isActive: boolean;
+        }[];
+        activityLogs: {
+            id: string;
+            createdAt: Date;
+            businessId: string;
+            action: string;
+            entityType: string | null;
+            entityId: string | null;
+            metadata: import("@prisma/client/runtime/library").JsonValue | null;
+            deviceId: string | null;
+            ipAddress: string | null;
+            isSuspicious: boolean;
+            severity: string;
+            staffId: string | null;
+        }[];
+        timestamp: number;
+    }>;
+}
