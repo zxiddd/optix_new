@@ -322,6 +322,14 @@ export class SuperAdminController {
     return this.adminService.sendRemoteCommand(body);
   }
 
+  @Public()
+  @Post('notifications/send')
+  @ApiOperation({ summary: 'Send targeted or broadcast notification to business terminals' })
+  async sendAdminNotification(@Body() body: any) {
+    return this.adminService.sendAdminNotification(body);
+  }
+
+
   // ─── BULK ACTIONS ──────────────────────────────────────────────────────────
 
   @Public()

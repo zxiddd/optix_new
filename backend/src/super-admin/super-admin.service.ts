@@ -903,6 +903,81 @@ export class SuperAdminService {
     return { processed: results.length, results };
   }
 
+  async sendAdminNotification(data: {
+    targetType: 'ALL' | 'BUSINESS' | 'PLAN';
+    businessId?: string;
+    planId?: string;
+    title: string;
+    message: string;
+    type?: string;
+    severity?: string;
+  }) {
+    let targetBusinesses: string[] = [];
+
+    if (data.targetType === 'BUSINESS' && data.businessId) {
+      targetBusinesses = [data.businessId];
+    } else if (data.targetType === 'PLAN' && data.planId) {
+      const subs = await this.prisma.subscription.findMany({
+        where: { planId: data.planId },
+        select: { businessId: true },
+      });
+      targetBusinesses = subs.map(s => s.businessId);
+    } else {
+      const all = await this.prisma.business.findMany({ select: { id: true } });
+      targetBusinesses = all.map(b => b.id);
+    }
+
+    if (targetBusinesses.length === 0) {
+      return { success: false, message: 'No target businesses found matching criteria.' };
+    }
+
+    await this.prisma.notification.createMany({
+      data: targetBusinesses.map(bId => ({
+        businessId: bId,
+        title: data.title,
+        message: data.message,
+        type: data.type || 'ADMIN_BROADCAST',
+        severity: data.severity || 'INFO',
+        metadata: {
+          sentBy: 'SUPER_ADMIN',
+          sentAt: new Date().toISOString(),
+        },
+      })),
+    });
+
+    const payload = {
+      title: data.title,
+      message: data.message,
+      type: data.type || 'ADMIN_BROADCAST',
+      severity: data.severity || 'INFO',
+      timestamp: new Date().toISOString(),
+    };
+
+    if (data.targetType === 'BUSINESS' && data.businessId) {
+      this.syncGateway.emitToBusiness(data.businessId, 'admin_notification', payload);
+      this.syncGateway.emitToBusiness(data.businessId, 'remote_command', { action: 'SEND_TEST_NOTIFICATION', payload });
+    } else {
+      this.syncGateway.emitToAll('admin_notification', payload);
+      this.syncGateway.emitToAll('remote_command', { action: 'SEND_TEST_NOTIFICATION', payload });
+    }
+
+    await this.writeAdminAuditLog(
+      data.businessId || 'GLOBAL',
+      'SEND_NOTIFICATION',
+      'NOTIFICATION',
+      'BROADCAST',
+      null,
+      { title: data.title, targetCount: targetBusinesses.length }
+    );
+
+    return {
+      success: true,
+      sentCount: targetBusinesses.length,
+      message: `Notification successfully broadcasted to ${targetBusinesses.length} business terminal(s)!`,
+    };
+  }
+
+
   // ─────────────────────────────────────────────────────────────────────────
   // GLOBAL CONFIG & SETTINGS
   // ─────────────────────────────────────────────────────────────────────────

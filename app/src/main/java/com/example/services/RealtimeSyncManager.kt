@@ -391,6 +391,39 @@ class RealtimeSyncManager private constructor(context: Context) {
                 }
             }
 
+            // 6.8. Admin Broadcast Notification
+            socket?.on("admin_notification") { args ->
+                if (args.isNotEmpty() && args[0] is JSONObject) {
+                    val obj = args[0] as JSONObject
+                    val title = obj.optString("title", "Super Admin Notification")
+                    val message = obj.optString("message", "")
+                    val type = obj.optString("type", "ADMIN_BROADCAST")
+                    val severity = obj.optString("severity", "INFO")
+
+                    Log.d("OPTIX_FLOW", "[ADMIN NOTIFICATION RECEIVED] Title: $title | Message: $message | Type: $type")
+
+                    scope.launch {
+                        try {
+                            app.notificationRepository.insert(
+                                com.example.data.entity.NotificationEntity(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    businessId = app.currentBusinessId ?: "",
+                                    title = title,
+                                    message = message,
+                                    type = type,
+                                    severity = severity,
+                                    isRead = false,
+                                    createdAt = System.currentTimeMillis()
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.e("OPTIX_FLOW", "[NOTIFICATION INSERT ERR] ${e.message}")
+                        }
+                    }
+                }
+            }
+
+
 
 
             // 7. Core Entity Events (Order / Product / Category)
