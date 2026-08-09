@@ -67,6 +67,7 @@ export class SuperAdminController {
 
   // ─── PAYMENTS ──────────────────────────────────────────────────────────────
 
+  @Public()
   @Get('payments')
   @ApiOperation({ summary: 'Get all payment transactions with full filters' })
   async getPayments(
@@ -84,12 +85,14 @@ export class SuperAdminController {
     return this.adminService.getAllPayments({ status, businessId, planId, country, currency, dateFrom, dateTo, page, limit, search });
   }
 
+  @Public()
   @Get('payments/:id')
   @ApiOperation({ summary: 'Get single payment full details' })
   async getPaymentDetail(@Param('id') id: string) {
     return this.adminService.getPaymentDetail(id);
   }
 
+  @Public()
   @Post('payments/:id/refund')
   @ApiOperation({ summary: 'Refund a payment' })
   @HttpCode(HttpStatus.OK)
@@ -100,6 +103,7 @@ export class SuperAdminController {
   ) {
     return this.adminService.refundPayment(id, reason, partial);
   }
+
 
   // ─── SUBSCRIPTIONS ─────────────────────────────────────────────────────────
 
@@ -258,6 +262,7 @@ export class SuperAdminController {
 
   // ─── FEATURE FLAGS ─────────────────────────────────────────────────────────
 
+  @Public()
   @Get('feature-flags')
   @ApiOperation({ summary: 'List feature flags with search & filters' })
   async getFeatureFlags(
@@ -270,6 +275,7 @@ export class SuperAdminController {
     return this.adminService.getFeatureFlags({ search, level, status, page, limit });
   }
 
+  @Public()
   @Post('feature-flags')
   @ApiOperation({ summary: 'Create or update a feature flag rule' })
   async upsertFeatureFlag(
@@ -285,17 +291,20 @@ export class SuperAdminController {
     return this.adminService.upsertFeatureFlag(body);
   }
 
+  @Public()
   @Delete('feature-flags/:id')
   @ApiOperation({ summary: 'Delete a feature flag rule' })
   async deleteFeatureFlag(@Param('id') id: string) {
     return this.adminService.deleteFeatureFlag(id);
   }
 
+  @Public()
   @Get('effective-feature-flags')
   @ApiOperation({ summary: 'Get resolved feature flags for a business' })
   async getEffectiveFeatureFlags(@Query('businessId') businessId?: string) {
     return this.adminService.getEffectiveFeatureFlags(businessId);
   }
+
 
   // ─── REMOTE COMMANDS ───────────────────────────────────────────────────────
 
@@ -427,10 +436,25 @@ export class SuperAdminController {
     return this.infraService.getContainers();
   }
 
+  @Public()
   @Post('infra/containers/:id/restart')
   @ApiOperation({ summary: 'Restart a Docker container' })
   async restartContainer(@Param('id') id: string) {
     return this.infraService.restartContainer(id);
+  }
+
+  @Public()
+  @Post('infra/vps/free-ram')
+  @ApiOperation({ summary: 'Free VPS RAM memory via garbage collection' })
+  async freeRam() {
+    return this.infraService.freeRam();
+  }
+
+  @Public()
+  @Post('infra/vps/clean-disk')
+  @ApiOperation({ summary: 'Clean temporary files and prune disk space' })
+  async cleanDisk() {
+    return this.infraService.cleanDisk();
   }
 
   @Public()
@@ -458,6 +482,7 @@ export class SuperAdminController {
     return this.infraService.getBackups();
   }
 
+  @Public()
   @Post('infra/backups/create')
   @ApiOperation({ summary: 'Create manual database backup snapshot' })
   async createBackup() {
@@ -471,11 +496,13 @@ export class SuperAdminController {
     return this.infraService.getStorageStats();
   }
 
+  @Public()
   @Post('infra/storage/cleanup')
   @ApiOperation({ summary: 'Cleanup temporary & export files' })
   async cleanupStorage() {
     return this.infraService.cleanupStorage();
   }
+
 
   @Public()
   @Get('infra/security')

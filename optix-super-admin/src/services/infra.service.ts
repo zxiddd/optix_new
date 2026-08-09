@@ -60,6 +60,15 @@ export const infraService = {
     const { data } = await axios.post(`${API_URL}/storage/cleanup`, {}, auth());
     return data;
   },
+  freeRam: async () => {
+    const { data } = await axios.post(`${API_URL}/vps/free-ram`, {}, auth());
+    return data;
+  },
+  cleanDisk: async () => {
+    const { data } = await axios.post(`${API_URL}/vps/clean-disk`, {}, auth());
+    return data;
+  },
+
   getSecurityStats: async () => {
     const { data } = await axios.get(`${API_URL}/security`, auth());
     return data;
