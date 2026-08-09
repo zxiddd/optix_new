@@ -686,7 +686,8 @@ fun ItemCard(item: BillingItem, viewModel: BillingViewModel, profile: BusinessPr
 fun BillingCartSection(viewModel: BillingViewModel, profile: BusinessProfile?) {
     val context = LocalContext.current
     val cart by viewModel.cartItems.collectAsState()
-    val total = viewModel.grandTotal
+    val total by viewModel.grandTotal.collectAsState()
+
 
     Card(
         modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),

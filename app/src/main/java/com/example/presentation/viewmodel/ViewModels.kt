@@ -6,6 +6,8 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.snapshotFlow
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -365,8 +367,15 @@ class BillingViewModel(
     val discount: Double
         get() = discountValue.value.toDoubleOrNull() ?: 0.0
 
-    val grandTotal: Double
-        get() = (subtotal - discount).coerceAtLeast(0.0)
+    val grandTotal: StateFlow<Double> = combine(_cartItems, snapshotFlow { discountValue.value }) { cart, discStr ->
+        val sub = cart.sumOf { item ->
+            if (item.pricingType == "WEIGHT") item.price * (item.weight ?: 0.0)
+            else item.price * item.quantity
+        }
+        val disc = discStr.toDoubleOrNull() ?: 0.0
+        (sub - disc).coerceAtLeast(0.0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
 
     fun setCategory(category: String) {
         _selectedCategory.value = category
@@ -1704,7 +1713,8 @@ class SubscriptionViewModel(
                 val order = repository.createRazorpayOrder(planId, cycle)
                 if (order != null) {
                     val checkout = com.razorpay.Checkout()
-                    val keyId = order.optString("key_id", "rzp_test_TMy1cZ9CH4Vh0V")
+                    val keyId = order.optString("key_id", "rzp_live_TMU8GBAj19LGFg")
+
                     checkout.setKeyID(keyId)
                     
                     val options = org.json.JSONObject()

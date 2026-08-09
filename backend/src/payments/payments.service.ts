@@ -17,8 +17,9 @@ export class PaymentsService {
     private config: ConfigService,
     private syncGateway: SyncGateway,
   ) {
-    const keyId = this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_TMy1cZ9CH4Vh0V';
-    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET') || 'OJMTJqo6Oc8yBrbioMVWClcu';
+    const keyId = this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_live_TMU8GBAj19LGFg';
+    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET') || 'XMvL1kbLF5e0X1VzDwdNUhEA';
+
 
     this.razorpay = new Razorpay({
       key_id: keyId,
@@ -85,7 +86,7 @@ export class PaymentsService {
 
       return {
         ...order,
-        key_id: this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_test_TMy1cZ9CH4Vh0V'
+        key_id: this.config.get<string>('RAZORPAY_KEY_ID') || 'rzp_live_TMU8GBAj19LGFg'
       };
     } catch (error) {
       this.logger.error('Razorpay Order Creation Failed', error);
@@ -98,7 +99,8 @@ export class PaymentsService {
     razorpay_payment_id: string;
     razorpay_signature: string;
   }) {
-    const secret = this.config.get<string>('RAZORPAY_KEY_SECRET') || 'OJMTJqo6Oc8yBrbioMVWClcu';
+    const secret = this.config.get<string>('RAZORPAY_KEY_SECRET') || 'XMvL1kbLF5e0X1VzDwdNUhEA';
+
     const body = data.razorpay_order_id + '|' + data.razorpay_payment_id;
 
     const expectedSignature = crypto
