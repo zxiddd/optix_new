@@ -26,8 +26,16 @@ class ReceiptGenerator {
     ): ByteArray {
         val output = mutableListOf<Byte>()
 
+        val currencySymbol = if (profile.currency == "₹" || profile.currency.contains("₹") || profile.currency == "\u20B9") "Rs " else "${profile.currency} "
+
         fun add(bytes: ByteArray) = output.addAll(bytes.toList())
-        fun addText(text: String) = add(text.toByteArray(Charsets.US_ASCII))
+        fun sanitizeForPrinter(text: String): String {
+            return text
+                .replace("₹", "Rs")
+                .replace("\u20B9", "Rs")
+                .replace(Regex("[^\\x00-\\x7F]"), "")
+        }
+        fun addText(text: String) = add(sanitizeForPrinter(text).toByteArray(Charsets.US_ASCII))
         fun addLine() = addText("--------------------------------\n")
 
         val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
@@ -123,39 +131,44 @@ class ReceiptGenerator {
         addLine()
 
         for (item in items) {
-            if (item.pricingType == "WEIGHT_BASED") {
+            val isWeightItem = item.pricingType == "WEIGHT" || item.pricingType == "WEIGHT_BASED" || (item.weight != null && item.weight > 0.0)
+            if (isWeightItem) {
                 // Chicken Curry
-                // 0.625 kg x 320/kg
-                // 200
+                // 0.625 kg x Rs 320/kg
+                // 200.00
                 val name = if (item.itemName.length > 30) item.itemName.substring(0, 27) + "..." else item.itemName
                 addText("$name\n")
-                val weightStr = String.format("%.3f %s", item.weight ?: 0.0, item.unit ?: "kg")
-                val detailLine = String.format("%-20s %10.2f\n", "$weightStr x ${profile.currency}${item.price.toInt()}/${item.unit}", item.price * (item.weight ?: 0.0))
+                val weightVal = item.weight ?: 0.0
+                val unitStr = item.unit ?: "kg"
+                val lineTotal = item.price * weightVal
+                val weightStr = String.format(Locale.US, "%.3f %s", weightVal, unitStr)
+                val pricePerUnitStr = "${currencySymbol}${item.price.toInt()}/${unitStr}"
+                val detailLine = String.format(Locale.US, "%-20s %10.2f\n", "$weightStr x $pricePerUnitStr", lineTotal)
                 addText(detailLine)
             } else {
                 val name = if (item.itemName.length > 18) item.itemName.substring(0, 15) + "..." else item.itemName
-                addText(String.format("%-18s %3d %8.2f\n", name, item.quantity, item.price * item.quantity))
+                addText(String.format(Locale.US, "%-18s %3d %8.2f\n", name, item.quantity, item.price * item.quantity))
             }
         }
         addLine()
 
         // 5. Totals
         add(EscPosConstants.ALIGN_RIGHT)
-        addText("Subtotal:  ${profile.currency}${String.format("%.2f", subtotal)}\n")
+        addText("Subtotal:  ${currencySymbol}${String.format("%.2f", subtotal)}\n")
         
         if (profile.showDiscounts && discount > 0) {
-            addText("Discount: -${profile.currency}${String.format("%.2f", discount)}\n")
+            addText("Discount: -${currencySymbol}${String.format("%.2f", discount)}\n")
         }
 
         if (profile.showTaxes && profile.taxPercentage > 0) {
             val taxableAmount = (subtotal - discount).coerceAtLeast(0.0)
             val taxAmount = taxableAmount * (profile.taxPercentage / 100)
-            addText("Tax (${profile.taxPercentage}%): ${profile.currency}${String.format("%.2f", taxAmount)}\n")
+            addText("Tax (${profile.taxPercentage}%): ${currencySymbol}${String.format("%.2f", taxAmount)}\n")
         }
         
         add(EscPosConstants.BOLD_ON)
         add(EscPosConstants.FONT_SIZE_DOUBLE_WIDTH)
-        addText("TOTAL: ${profile.currency}${String.format("%.2f", total)}\n")
+        addText("TOTAL: ${currencySymbol}${String.format("%.2f", total)}\n")
         add(EscPosConstants.FONT_SIZE_NORMAL)
         add(EscPosConstants.BOLD_OFF)
         addLine()
@@ -187,10 +200,19 @@ class ReceiptGenerator {
         }
         
         addLine()
-        addText("${profile.footerMessage}\n")
+        val cleanFooter = profile.footerMessage
+            .replace("₹", "Rs")
+            .replace("\u20B9", "Rs")
+            .replace(Regex("[^\\x00-\\x7F]"), "")
+            .replace("!!", "!")
+            .trim()
+
+        if (cleanFooter.isNotBlank()) {
+            addText("$cleanFooter\n")
+        }
         
-        if (profile.showVisitAgain) {
-            addText("Visit Again! 🙏\n")
+        if (profile.showVisitAgain && !cleanFooter.contains("Visit Again", ignoreCase = true)) {
+            addText("Visit Again\n")
         }
         
         add(EscPosConstants.BOLD_ON)
@@ -255,8 +277,16 @@ class ReceiptGenerator {
         val output = mutableListOf<Byte>()
 
         fun add(bytes: ByteArray) = output.addAll(bytes.toList())
-        fun addText(text: String) = add(text.toByteArray(Charsets.US_ASCII))
+        fun sanitizeForPrinter(text: String): String {
+            return text
+                .replace("₹", "Rs")
+                .replace("\u20B9", "Rs")
+                .replace(Regex("[^\\x00-\\x7F]"), "")
+        }
+        fun addText(text: String) = add(sanitizeForPrinter(text).toByteArray(Charsets.US_ASCII))
         fun addLine() = addText("--------------------------------\n")
+
+        val displayCurrency = if (currency == "₹" || currency.contains("₹") || currency == "\u20B9") "Rs " else "$currency "
 
         add(EscPosConstants.INIT)
         add(EscPosConstants.ALIGN_CENTER)
@@ -268,7 +298,7 @@ class ReceiptGenerator {
         addLine()
 
         add(EscPosConstants.ALIGN_LEFT)
-        addText("Total Sales: $currency${String.format("%.2f", totalSales)}\n")
+        addText("Total Sales: $displayCurrency${String.format("%.2f", totalSales)}\n")
         addText("Total Bills: $numBills\n")
         addLine()
 

@@ -218,7 +218,7 @@ class BusinessSetupViewModel(
     var phone = mutableStateOf("")
     var gstNumber = mutableStateOf("")
     var selectedCountry = mutableStateOf("India")
-    var footerMessage = mutableStateOf("Thank You! Visit Again 🙏")
+    var footerMessage = mutableStateOf("Thank You! Visit Again")
     var setupError = mutableStateOf<String?>(null)
 
     val selectedCurrency: String

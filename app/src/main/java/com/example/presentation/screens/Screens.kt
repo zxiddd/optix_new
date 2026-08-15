@@ -3029,12 +3029,19 @@ fun ReceiptCustomizationScreen(navController: NavController, viewModel: Settings
         append("Masala Chai      2  30.00\n")
         append("Samosa           1  20.00\n")
         append("--------------------------------\n")
-        val currencySymbol = profile?.currency ?: "₹"
+        val rawCurrency = profile?.currency ?: "₹"
+        val currencySymbol = if (rawCurrency == "₹" || rawCurrency.contains("₹") || rawCurrency == "\u20B9") "Rs" else rawCurrency
         append("TOTAL: $currencySymbol 50.00\n")
         append("--------------------------------\n")
         if (viewModel.qrEnabled.value && activeQr != null) append("[QR: ${activeQr?.name}]\n")
-        append("${profile?.footerMessage}\n")
-        if (viewModel.showVisitAgain.value) append("Visit Again!\n")
+        val cleanFooter = (profile?.footerMessage ?: "")
+            .replace("₹", "Rs")
+            .replace("\u20B9", "Rs")
+            .replace(Regex("[^\\x00-\\x7F]"), "")
+            .replace("!!", "!")
+            .trim()
+        if (cleanFooter.isNotBlank()) append("$cleanFooter\n")
+        if (viewModel.showVisitAgain.value && !cleanFooter.contains("Visit Again", ignoreCase = true)) append("Visit Again\n")
     }
 
     Scaffold(

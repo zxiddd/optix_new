@@ -12,7 +12,7 @@ data class BusinessProfile(
     val country: String = "India",
     val gstNumber: String? = null,
     val currency: String = "₹",
-    val footerMessage: String = "Thank You! Visit Again 🙏",
+    val footerMessage: String = "Thank You! Visit Again",
     val setupCompleted: Boolean = false,
     val menuSetupCompleted: Boolean = false,
     val openingTime: String = "09:00",

@@ -139,6 +139,7 @@ class PrinterManager private constructor(private val context: Context) {
         }
 
         // Return a clean string version for the UI preview
+        val displayCurrency = if (profile.currency == "₹" || profile.currency.contains("₹") || profile.currency == "\u20B9") "Rs" else profile.currency
         return buildString {
             if (profile.showBusinessName) append("${profile.name}\n")
             if (profile.showAddress) append("${profile.address}\n")
@@ -153,13 +154,28 @@ class PrinterManager private constructor(private val context: Context) {
             append("Mode: $paymentMethod\n")
             append("--------------------------------\n")
             for (item in items) {
-                append("${item.itemName.padEnd(18)} ${item.quantity}  ${(item.price * item.quantity).toInt()}\n")
+                val isWeightItem = item.pricingType == "WEIGHT" || item.pricingType == "WEIGHT_BASED" || (item.weight != null && item.weight > 0.0)
+                if (isWeightItem) {
+                    val weightVal = item.weight ?: 0.0
+                    val unitStr = item.unit ?: "kg"
+                    val lineTotal = item.price * weightVal
+                    append("${item.itemName}\n")
+                    append("  ${String.format(Locale.US, "%.3f %s", weightVal, unitStr)} x $displayCurrency ${item.price.toInt()}/$unitStr = $displayCurrency ${lineTotal.toInt()}\n")
+                } else {
+                    append("${item.itemName.padEnd(18)} ${item.quantity}  ${(item.price * item.quantity).toInt()}\n")
+                }
             }
             append("--------------------------------\n")
-            append("TOTAL: ${profile.currency} ${total.toInt()}\n")
+            append("TOTAL: $displayCurrency ${total.toInt()}\n")
             append("--------------------------------\n")
-            append("${profile.footerMessage}\n")
-            if (profile.showVisitAgain) append("Visit Again!\n")
+            val cleanFooter = profile.footerMessage
+                .replace("₹", "Rs")
+                .replace("\u20B9", "Rs")
+                .replace(Regex("[^\\x00-\\x7F]"), "")
+                .replace("!!", "!")
+                .trim()
+            if (cleanFooter.isNotBlank()) append("$cleanFooter\n")
+            if (profile.showVisitAgain && !cleanFooter.contains("Visit Again", ignoreCase = true)) append("Visit Again\n")
         }
     }
 
@@ -187,13 +203,14 @@ class PrinterManager private constructor(private val context: Context) {
             }
         }
 
+        val displaySummaryCurrency = if (currency == "₹" || currency.contains("₹") || currency == "\u20B9") "Rs" else currency
         return buildString {
             append("SALES SUMMARY\n")
             append("$businessName\n")
             append("Period: $timeframe\n")
             append("--------------------------------\n")
             append("Total Bills: $numBills\n")
-            append("Total Sales: $currency${totalSales.toInt()}\n")
+            append("Total Sales: $displaySummaryCurrency ${totalSales.toInt()}\n")
             append("--------------------------------\n")
             for (item in items) {
                 append("${item.first.padEnd(18)} ${itemQuantities[item.first]}  ${item.second.toInt()}\n")

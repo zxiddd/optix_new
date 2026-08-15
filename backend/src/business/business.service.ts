@@ -38,7 +38,7 @@ export class BusinessService {
           businessId,
           showLogo: rs.showLogo ?? false,
           logoUrl: rs.logoUrl ?? null,
-          footerMessage: rs.footerMessage ?? 'Thank You! Visit Again 🙏',
+          footerMessage: rs.footerMessage ?? 'Thank You! Visit Again',
           showBusinessName: rs.showBusinessName ?? true,
           showAddress: rs.showAddress ?? true,
           showPhone: rs.showPhone ?? true,

@@ -152,7 +152,7 @@ model ReceiptSettings {
   showLogo          Boolean  @default(false)
   logoUrl           String?
   headerMessage     String?
-  footerMessage     String   @default("Thank You! Visit Again 🙏")
+  footerMessage     String   @default("Thank You! Visit Again")
   showBusinessName  Boolean  @default(true)
   showAddress       Boolean  @default(true)
   showPhone         Boolean  @default(true)

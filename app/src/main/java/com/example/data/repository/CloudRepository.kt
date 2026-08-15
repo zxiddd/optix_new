@@ -181,7 +181,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
 
             var rShowLogo = false
             var rLogoUrl: String? = null
-            var rFooter = "Thank You! Visit Again 🙏"
+            var rFooter = "Thank You! Visit Again"
             var rShowName = true
             var rShowAddr = true
             var rShowPhone = true
@@ -200,7 +200,7 @@ class CloudRepository(private val userId: String, private val authToken: String?
                 val urlStr = rObj.optString("logoUrl", "")
                 rLogoUrl = if (urlStr.isNotEmpty()) urlStr else null
                 rShowLogo = rObj.optBoolean("showLogo", rLogoUrl != null)
-                rFooter = rObj.optString("footerMessage", "Thank You! Visit Again 🙏")
+                rFooter = rObj.optString("footerMessage", "Thank You! Visit Again")
                 rShowName = rObj.optBoolean("showBusinessName", true)
                 rShowAddr = rObj.optBoolean("showAddress", true)
                 rShowPhone = rObj.optBoolean("showPhone", true)
