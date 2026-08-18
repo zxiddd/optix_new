@@ -2,7 +2,7 @@ import paramiko
 
 hostname = "200.141.7.8"
 username = "root"
-password = "Zaiduddin@787"
+password = "Zaddy123"
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())

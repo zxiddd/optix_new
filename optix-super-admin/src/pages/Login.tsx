@@ -16,7 +16,8 @@ const Login: React.FC = () => {
 
     setTimeout(() => {
       const cleanEmail = email.trim().toLowerCase();
-      if ((cleanEmail === 'admin@optix' || cleanEmail === 'admin@optix.in') && password === 'zaddy@787') {
+      const validPasses = ['zaddy123', 'zaddy123!', 'zaddy@123', 'zaddy@787'];
+      if ((cleanEmail === 'admin@optix' || cleanEmail === 'admin@optix.in' || cleanEmail === 'admin') && validPasses.includes(password.trim().toLowerCase())) {
         localStorage.setItem('admin_authenticated', 'true');
         localStorage.setItem('token', 'super_admin_verified_token');
         navigate('/');

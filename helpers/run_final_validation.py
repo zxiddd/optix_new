@@ -8,7 +8,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VPS_HOST = "200.141.7.8"
 VPS_USER = "root"
-VPS_PASS = "Zaiduddin@787"
+VPS_PASS = "Zaddy123"
 BASE_URL = "https://api.optixapp.in/api/v1"
 
 results = []

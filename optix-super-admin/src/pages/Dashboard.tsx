@@ -29,6 +29,13 @@ import { useNavigate } from 'react-router-dom';
 
 const authHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
 
+const colorMap: Record<string, string> = {
+  primary: "bg-primary/10 text-primary",
+  "green-500": "bg-green-500/10 text-green-500",
+  "yellow-500": "bg-yellow-500/10 text-yellow-500",
+  "blue-500": "bg-blue-500/10 text-blue-500",
+};
+
 const StatCard: React.FC<{
   title: string;
   value: string | number;
@@ -39,7 +46,7 @@ const StatCard: React.FC<{
 }> = ({ title, value, icon: Icon, trend, subtitle, color = "primary" }) => (
   <div className="bg-card border border-border p-6 rounded-2xl hover:border-primary/50 transition-all group">
     <div className="flex justify-between items-start mb-4">
-      <div className={cn("p-3 rounded-xl", `bg-${color}/10 text-${color}`)}>
+      <div className={cn("p-3 rounded-xl", colorMap[color] || "bg-primary/10 text-primary")}>
         <Icon size={24} />
       </div>
       {trend && (

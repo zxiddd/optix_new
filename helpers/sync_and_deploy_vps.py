@@ -3,7 +3,7 @@ import os
 
 hostname = "200.141.7.8"
 username = "root"
-password = "Zaiduddin@787"
+password = "Zaddy123"
 
 local_backend = r"c:\Users\zaid\StudioProjects\pos\backend"
 remote_backend = "/opt/optix/apps/backend"

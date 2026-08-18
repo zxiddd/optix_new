@@ -2,7 +2,7 @@ import paramiko
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect("200.141.7.8", username="root", password="Zaiduddin@787")
+client.connect("200.141.7.8", username="root", password="Zaddy123")
 
 cmd = "sed -i 's|http://localhost:3000/health|http://localhost:3000/api/v1/health|g' /opt/optix/infra/docker/docker-compose.staging.yml"
 stdin, stdout, stderr = client.exec_command(cmd)

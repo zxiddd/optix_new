@@ -4,7 +4,7 @@ import time
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect("200.141.7.8", username="root", password="Zaiduddin@787")
+client.connect("200.141.7.8", username="root", password="Zaddy123")
 
 email = f"uploader_{int(time.time())}@optixapp.in"
 signup_cmd = f'curl -s -X POST http://localhost:3000/api/v1/auth/local/signup -H "Content-Type: application/json" -d "{{\\"email\\":\\"{email}\\", \\"password\\":\\"testpass123\\", \\"businessName\\":\\"Test Upload Store\\"}}"'

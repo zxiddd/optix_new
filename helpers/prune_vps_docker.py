@@ -2,7 +2,7 @@ import paramiko
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('200.141.7.8', username='root', password='Zaiduddin@787')
+ssh.connect('200.141.7.8', username='root', password='Zaddy123')
 
 stdin, stdout, stderr = ssh.exec_command('docker builder prune -f')
 out = stdout.read().decode('utf-8')

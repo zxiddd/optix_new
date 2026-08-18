@@ -6,6 +6,10 @@ import path from 'path'
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   base: '/admin/',
+  build: {
+    outDir: '../backend/admin-dist',
+    emptyOutDir: true,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

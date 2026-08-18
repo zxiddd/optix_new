@@ -69,7 +69,7 @@ print(json.dumps(dump_data, indent=2))
 # 7. Query PostgreSQL Direct DB Records
 vps_ip = "200.141.7.8"
 vps_user = "root"
-vps_pass = "Zaiduddin@787"
+vps_pass = "Zaddy123"
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())

@@ -5,7 +5,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect("200.141.7.8", username="root", password="Zaiduddin@787")
+client.connect("200.141.7.8", username="root", password="Zaddy123")
 
 cmd = 'docker exec optix-postgres-staging psql -U optix_staging_admin -d optix_staging_db -c "SELECT * FROM \\"ReceiptSettings\\" LIMIT 2; SELECT * FROM \\"PaymentQr\\" LIMIT 2; SELECT count(*) FROM \\"Order\\";"'
 stdin, stdout, stderr = client.exec_command(cmd)
